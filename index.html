@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>XyvroAI</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="storage-loader" id="storage-loader">
+        <div class="spinner"></div>
+        <p>Securing connection to XyvroAI...</p>
+    </div>
+
+    <div class="app-container">
+        <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">XyvroAI</div>
+                <button class="close-sidebar-btn" onclick="toggleSidebar()">✕</button>
+            </div>
+            <button class="new-chat-btn" onclick="createNewChat()">+ New Chat</button>
+            
+            <div class="chat-history-list" id="chat-history-list"></div>
+            
+            <div class="sidebar-footer">
+                <div class="legal-links">
+                    <span onclick="openModal('privacy-modal')">Privacy Policy</span> • 
+                    <span onclick="openModal('terms-modal')">Terms</span>
+                </div>
+                <div class="user-info">
+                    <span id="user-status">Guest Account</span>
+                    <span id="limit-badge" class="badge">Limit: 0/10</span>
+                </div>
+                <button id="auth-btn" class="auth-btn" onclick="openAuthModal()">Log In / Sign Up</button>
+                <div class="branding">© Xyvro Entertainment</div>
+            </div>
+        </aside>
+
+        <main class="chat-area">
+            <header class="top-nav">
+                <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+                <h1 class="nav-title">XyvroAI</h1>
+                <button class="premium-btn" onclick="showPremiumModal()">Go Premium</button>
+            </header>
+
+            <div class="chat-messages" id="chat-messages"></div>
+
+            <footer class="input-container">
+                <div class="input-box-wrapper">
+                    <textarea id="user-input" placeholder="Message XyvroAI..." rows="1" oninput="autoGrow(this)"></textarea>
+                    <button id="send-btn" onclick="sendMessage()">➔</button>
+                </div>
+                <p class="disclaimer">XyvroAI can make mistakes. Check important info</p>
+            </footer>
+        </main>
+    </div>
+
+    <div class="modal" id="auth-modal" onclick="closeModalOnOuterClick(event, 'auth-modal')">
+        <div class="modal-content">
+            <h2>Welcome to XyvroAI</h2>
+            <p>Access 100 daily messages securely across systems.</p>
+            <input type="email" id="auth-email" class="modal-input" placeholder="Enter email address">
+            <input type="password" id="auth-password" class="modal-input" placeholder="Enter password">
+            <div class="auth-button-row">
+                <button class="auth-action-btn signup-color" onclick="handleAuth('signup')">Create Account</button>
+                <button class="auth-action-btn login-color" onclick="handleAuth('login')">Log In</button>
+            </div>
+            <div class="modal-footer-wrapper">
+                <button class="close-btn" onclick="closeModal('auth-modal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="limit-modal" onclick="closeModalOnOuterClick(event, 'limit-modal')">
+        <div class="modal-content">
+            <h2>Daily Limit Reached</h2>
+            <p id="limit-modal-text">You have exhausted your message allowance parameters for today.</p>
+            <div class="auth-button-row">
+                <button class="auth-action-btn login-color" onclick="openAuthModal()">Log In / Sign Up</button>
+            </div>
+            <div class="modal-footer-wrapper">
+                <button class="close-btn" onclick="closeModal('limit-modal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="privacy-modal" onclick="closeModalOnOuterClick(event, 'privacy-modal')">
+        <div class="modal-content legal-content">
+            <h2>Privacy Policy</h2>
+            <div class="legal-text-box">
+                <p><strong>Effective Date: May 2026</strong></p>
+                <p>Welcome to XyvroAI, owned and operated by Xyvro Entertainment. Your chat messages are stored locally inside your personal device sandbox configuration ecosystem via secure localStorage engines.</p>
+            </div>
+            <button class="close-btn" onclick="closeModal('privacy-modal')">I Understand</button>
+        </div>
+    </div>
+
+    <div class="modal" id="terms-modal" onclick="closeModalOnOuterClick(event, 'terms-modal')">
+        <div class="modal-content legal-content">
+            <h2>Terms & Conditions</h2>
+            <div class="legal-text-box">
+                <p><strong>Last Updated: May 2026</strong></p>
+                <p>By interacting with XyvroAI, an intellectual service production property of Xyvro Entertainment (CEO: Aryan Pandey), you fully consent to our technical runtime architecture models.</p>
+            </div>
+            <button class="close-btn" onclick="closeModal('terms-modal')">Accept Terms</button>
+        </div>
+    </div>
+
+    <div class="modal" id="premium-modal" onclick="closeModalOnOuterClick(event, 'premium-modal')">
+        <div class="modal-content">
+            <h2>XyvroAI Premium</h2>
+            <p>Get unlimited supercharged requests for ₹199/month.</p>
+            <div class="error-box">⚠️ Under Maintenance: Razorpay integration is coming soon!</div>
+            <button class="close-btn" onclick="closeModal('premium-modal')">Close</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
