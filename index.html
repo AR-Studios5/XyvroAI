@@ -5,20 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XyvroAI</title>
     
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" async></script>
+    <script src="https://checkout.razorpay.com/v1/checkout.js" async></script>
     
     <link rel="stylesheet" href="./style.css">
 </head>
-<body class="light-theme"> <div id="status-toast" class="toast hidden">System Online</div>
+<body class="light-theme"> 
+    <div id="status-toast" class="toast hidden">System Online</div>
 
     <div id="quota-modal" class="modal-overlay hidden">
         <div class="glass-card modal-card">
-            <h1 class="text-center">Limit Reached</h1>
-            <p class="subtitle text-center">You have exhausted your daily allowance. Upgrade to XyvroAI Subscribed for faster answers and 500 messages/day.</p>
+            <h1 class="text-center" id="modal-title">Limit Reached</h1>
+            <p class="subtitle text-center" id="modal-desc">You have exhausted your daily allowance.</p>
             <button id="modal-signup-btn" class="btn-primary">Sign Up Free (50/day)</button>
-            <button id="modal-upgrade-btn" class="btn-primary" style="background-color: #0f172a;">Upgrade now</button>
+            <button id="modal-upgrade-btn" class="btn-primary" style="background-color: #0f172a;">View Pricing Plans</button>
             <button id="close-modal-btn" class="btn-text">Close</button>
         </div>
     </div>
@@ -37,7 +39,7 @@
             
             <div class="legal-checkbox-container">
                 <input type="checkbox" id="legal-agree-login">
-                <label for="legal-agree-login">I agree to the <a href="#" id="link-pp1">PP</a>, <a href="#" id="link-tc1">T&C</a>, and <a href="#" id="link-pp2">Payment Policy</a>.</label>
+                <label for="legal-agree-login">I agree to the <a href="./privacy.html" target="_blank">Privacy Policy</a>, <a href="./terms.html" target="_blank">T&C</a>, and <a href="./refund.html" target="_blank">Payment Policy</a>.</label>
             </div>
 
             <button id="do-login-btn" class="btn-primary">Log In</button>
@@ -72,7 +74,7 @@
 
             <div class="legal-checkbox-container">
                 <input type="checkbox" id="legal-agree-signup">
-                <label for="legal-agree-signup">I agree to the <a href="#" id="link-pp3">PP</a>, <a href="#" id="link-tc2">T&C</a>, and <a href="#" id="link-pp4">Payment Policy</a>.</label>
+                <label for="legal-agree-signup">I agree to the <a href="./privacy.html" target="_blank">Privacy Policy</a>, <a href="./terms.html" target="_blank">T&C</a>, and <a href="./refund.html" target="_blank">Payment Policy</a>.</label>
             </div>
             
             <button id="do-signup-btn" class="btn-primary">Sign Up</button>
@@ -84,7 +86,7 @@
     <div id="profile-screen" class="screen hidden">
         <header class="top-bar glass-top">
             <button id="back-to-chat" class="icon-btn"><i data-lucide="arrow-left"></i></button>
-            <h2 class="brand-title-small">Account</h2>
+            <h2 class="brand-title-small">Account Settings</h2>
             <div style="width: 24px;"></div>
         </header>
         <div class="scrollable-content pt-80">
@@ -106,9 +108,14 @@
                 <p id="profile-email-display" class="subtitle">user@email.com</p>
                 
                 <div class="subscription-box">
-                    <h3>Current Plan</h3>
-                    <div id="profile-tier-badge" class="badge">XyvroAI Normal</div>
-                    <button id="razorpay-upgrade-btn" class="btn-primary mt-4" style="background-color: #0f172a;">Upgrade via Razorpay</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h3>Status</h3>
+                            <div id="profile-tier-badge" class="badge">Normal Free</div>
+                            <p id="sub-expiry-note" class="text-muted" style="font-size: 11px; margin-top: 6px;"></p>
+                        </div>
+                        <button id="nav-subscription-btn" class="btn-primary" style="width: auto; padding: 10px 20px; margin: 0;">Subscription</button>
+                    </div>
                 </div>
                 
                 <button id="do-logout-btn" class="btn-outline text-red mt-4">Log Out</button>
@@ -116,22 +123,37 @@
         </div>
     </div>
 
-    <div id="legal-screen" class="screen hidden">
+    <div id="subscription-screen" class="screen hidden">
         <header class="top-bar glass-top">
-            <button id="back-to-auth" class="icon-btn"><i data-lucide="arrow-left"></i></button>
-            <h2 class="brand-title-small">Legal Policies</h2>
+            <button id="back-to-profile" class="icon-btn"><i data-lucide="arrow-left"></i></button>
+            <h2 class="brand-title-small">Compare Plans</h2>
             <div style="width: 24px;"></div>
         </header>
-        <div class="scrollable-content pt-80">
-            <div class="glass-card doc-card">
-                <h3 id="doc-pp">1. Privacy Policy (PP)</h3>
-                <p class="sub-text">We strictly protect user data.</p>
-                
-                <h3 class="mt-4" id="doc-tc">2. Terms and Conditions (T&C)</h3>
-                <p class="sub-text">User guidelines and API rules.</p>
+        <div class="scrollable-content pt-80 flex-center">
+            <div class="pricing-container">
+                <div class="pricing-card">
+                    <h3>Normal Free Plan</h3>
+                    <p class="price-title">₹0 <span class="price-period">/ Forever</span></p>
+                    <ul class="feature-list">
+                        <li><i data-lucide="check-circle-2" class="icon-green"></i> 50 AI Messages / Day</li>
+                        <li><i data-lucide="check-circle-2" class="icon-green"></i> 10 Image Uploads / Day</li>
+                        <li><i data-lucide="check-circle-2" class="icon-green"></i> Standard Server Priority</li>
+                    </ul>
+                    <button class="btn-outline" disabled style="margin-top: auto; opacity: 0.7;">Active Plan</button>
+                </div>
 
-                <h3 class="mt-4" id="doc-pay">3. Payment & Refund Policy (PP)</h3>
-                <p class="sub-text">Razorpay requirements.</p>
+                <div class="pricing-card featured">
+                    <div class="popular-tag">PRO</div>
+                    <h3>Pro Plan</h3>
+                    <p class="price-title">₹199 <span class="price-period">/ 28 Days</span></p>
+                    <ul class="feature-list">
+                        <li><i data-lucide="check-circle-2" class="icon-blue"></i> 500 AI Messages / Day</li>
+                        <li><i data-lucide="check-circle-2" class="icon-blue"></i> 50 Image Uploads / Day</li>
+                        <li><i data-lucide="check-circle-2" class="icon-blue"></i> High Server Priority</li>
+                        <li><i data-lucide="check-circle-2" class="icon-blue"></i> Faster Responses</li>
+                    </ul>
+                    <button id="razorpay-pay-btn" class="btn-primary" style="margin-top: auto;">Upgrade Now</button>
+                </div>
             </div>
         </div>
     </div>
