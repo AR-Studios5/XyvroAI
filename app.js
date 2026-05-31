@@ -1,377 +1,678 @@
-const SUPABASE_URL = "https://hwgmdwxznxmrgxeqscxo.supabase.co"; 
-const SUPABASE_ANON_KEY = "sb_publishable_oSxNYee1-1iXvAe_Odsphg_QYqJ0EfM";
+// ==========================================
+// 1. CONFIG & SYSTEM DIAGNOSTIC
+// ==========================================
+const SUPPORT_EMAIL = 'xyvroentertainment@gmail.com';
+const DB_REFRESH_RATE = 300000; // 5 mins (standard for Google servers to pick up OAuth changes)
 
-const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const toast = document.getElementById('status-toast');
+if (toast) {
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 3000);
+}
 
-let userState = {
-    userId: null,
-    role: 'guest', 
-    messagesSentToday: 0
+if (typeof lucide !== 'undefined') lucide.createIcons();
+
+// --- Local State ---
+let currentSession = null;
+let profileData = null; // Stored user profile (metadata + db quotas)
+let chatMessages = []; // Local history
+let currentBase64Image = null;
+
+
+// ==========================================
+// 2. CORE UTILITIES
+// ==========================================
+
+function navigate(screenId) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+    document.getElementById('settings-dropdown').classList.add('hidden'); // Close settings
+    const target = document.getElementById(screenId);
+    if (target) target.classList.remove('hidden');
+}
+
+// Check PP checkbox before auth
+function checkLegalRequirements(checkboxId) {
+    const checkbox = document.getElementById(checkboxId);
+    if (!checkbox || !checkbox.checked) {
+        alert("You must agree to the T&C and Payment Policy to proceed.");
+        return false;
+    }
+    return true;
+}
+
+// Generate Default Avatar based on first initial
+function generateDefaultAvatarUrl(name = "X") {
+    const initial = name.charAt(0).toUpperCase();
+    return `https://api.dicebear.com/8.x/initials/svg?seed=${initial}&radius=50&backgroundColor=2563eb`;
+}
+
+// Apply Avatar to all UI triggers
+function applyAvatarToUI(imgUrl) {
+    const finalUrl = imgUrl || generateDefaultAvatarUrl(profileData?.username);
+    const triggers = ['profile-trigger', 'profile-avatar-image'];
+    triggers.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.src = finalUrl;
+            el.alt = (profileData?.username || "U").charAt(0).toUpperCase();
+        }
+    });
+}
+
+// Save message to local history (without image base64, too bulky)
+function saveToHistory(msg) {
+    const historyMsg = {...msg};
+    if (historyMsg.type === 'user' && historyMsg.image) {
+        historyMsg.image = '(Image Attached)'; // Simplified for local storage
+    }
+    chatMessages.push(historyMsg);
+    localStorage.setItem(`xyvro_history_${currentSession?.user.id}`, JSON.stringify(chatMessages));
+}
+
+// Load local history
+function loadHistory() {
+    chatMessages = JSON.parse(localStorage.getItem(`xyvro_history_${currentSession?.user.id}`)) || [];
+    const container = document.getElementById('chat-container');
+    container.innerHTML = ''; // Clear Thinking indicators
+    chatMessages.forEach(msg => appendMessageUI(msg, false)); // No animation/saving on load
+    initChatGreeting(false); // Greeting *after* history, no save.
+}
+
+
+// ==========================================
+// 3. UI INITIALIZATION & PERSONALIZATION
+// ==========================================
+
+function updateProfileUI() {
+    const user = currentSession.user;
+    const name = profileData?.username || user.raw_user_metadata?.full_name || user.email.split('@')[0];
+    const email = user.email;
+    const avatarUrl = profileData?.avatar_url || user.raw_user_metadata?.avatar_url;
+    const tier = profileData?.tier || 'guest';
+
+    // Populate Account Page
+    applyAvatarToUI(avatarUrl);
+    document.getElementById('profile-name-display').textContent = name;
+    document.getElementById('profile-email-display').textContent = email;
+    
+    // Tier Badge & Upgrade Button
+    const tierBadge = document.getElementById('profile-tier-badge');
+    const upgradeBtn = document.getElementById('razorpay-upgrade-btn');
+    tierBadge.textContent = `XyvroAI ${tier.charAt(0).toUpperCase() + tier.slice(1)}`;
+    
+    if (tier === 'subscribed') {
+        tierBadge.style.backgroundColor = '#10b981'; // Green
+        tierBadge.style.color = '#fff';
+        upgradeBtn.textContent = 'Manage Subscription';
+        upgradeBtn.style.backgroundColor = '#64748b'; // Muted
+    } else {
+        tierBadge.style.backgroundColor = ''; // Default Blue
+        tierBadge.style.color = '';
+        upgradeBtn.textContent = 'Upgrade via Razorpay';
+        upgradeBtn.style.backgroundColor = '#0f172a'; // Black
+    }
+}
+
+// Init chat with personalization and Greeting
+function initChatGreeting(shouldSave = true) {
+    const container = document.getElementById('chat-container');
+    if (!container || (container.children.length > 0 && shouldSave)) return; // Greeting already exists
+    
+    const name = profileData?.username?.split(' ')[0] || currentSession.user.email.split('@')[0]; // First name or email prefix
+    
+    const msgData = {
+        type: 'ai',
+        content: `Hello ${name}. Welcome to XyvroAI. How can I assist you today?`
+    };
+    appendMessageUI(msgData);
+    if (shouldSave) saveToHistory(msgData);
+}
+
+// Show thinking indicator
+function showAiThinking(message = "Analyzing...") {
+    const container = document.getElementById('chat-container');
+    const msgData = { type: 'ai', content: message, isThinking: true };
+    const el = appendMessageUI(msgData);
+    container.scrollTop = container.scrollHeight;
+    return el; // Return element to update it later
+}
+
+
+// Append message to DOM
+function appendMessageUI(msg, animate = true) {
+    const container = document.getElementById('chat-container');
+    if (!container) return;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${msg.type === 'ai' ? 'ai-message' : 'user-message'}`;
+    if (msg.isThinking) msgDiv.id = 'ai-thinking-indicator';
+
+    if (msg.image) {
+        const imgEl = document.createElement('img');
+        imgEl.src = msg.image;
+        imgEl.alt = 'User upload';
+        msgDiv.appendChild(imgEl);
+    }
+    if (msg.content) {
+        const textDiv = document.createElement('div');
+        textDiv.textContent = msg.content;
+        msgDiv.appendChild(textDiv);
+    }
+
+    container.appendChild(msgDiv);
+    if (animate) container.scrollTop = container.scrollHeight;
+    return msgDiv;
+}
+
+
+// ==========================================
+// 4. LIMITS & QUOTA POPUPS
+// ==========================================
+
+const MSG_LIMITS = { guest: 10, normal: 50, subscribed: 500 };
+const IMG_LIMITS = { guest: 1, normal: 50, subscribed: 500 }; // Intentionally 1 for guest
+const AI_DELAY = { guest: 3000, normal: 2000, subscribed: 0 }; // Artificial delays
+
+// Show quota exhausted popup
+function showQuotaModal() {
+    document.getElementById('settings-dropdown').classList.add('hidden'); // Close dropdown if open
+    document.getElementById('quota-modal').classList.remove('hidden');
+}
+
+
+// ==========================================
+// 5. IMAGE UPLOAD HANDLING (BASE64)
+// ==========================================
+
+// --- MAIN CHAT FOOTER ATTACHMENT ---
+const chatAttachBtn = document.getElementById('chat-attach-btn');
+const chatFileUpload = document.getElementById('chat-file-upload');
+const chatPreviewContainer = document.getElementById('chat-image-preview-container');
+const chatImagePreview = document.getElementById('chat-image-preview');
+const chatRemoveImageBtn = document.getElementById('chat-remove-image-btn');
+
+chatAttachBtn.onclick = () => chatFileUpload.click();
+
+chatFileUpload.onchange = function(e) {
+    const file = e.target.files[0];
+    if (file) {
+        // Strict file type check
+        if (!file.type.startsWith('image/')) return alert('Please upload an image file.');
+        if (file.size > 5000000) return alert('Image too large. Keep it under 5MB.');
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            currentBase64Image = event.target.result;
+            chatImagePreview.src = currentBase64Image;
+            chatPreviewContainer.classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
+    }
 };
 
-let chatSessions = {}; 
-let currentChatId = "";
+chatRemoveImageBtn.onclick = () => {
+    currentBase64Image = null;
+    chatImagePreview.src = '';
+    chatPreviewContainer.classList.add('hidden');
+    chatFileUpload.value = '';
+};
 
-async function initApp() {
-    showLoader(); // Fire visual loading screen instantly
-    
-    const today = new Date().toDateString();
-    const savedDate = localStorage.getItem('Xyvro_LastDate');
-    
-    if (savedDate !== today) {
-        localStorage.setItem('Xyvro_MsgCount', '0');
-        localStorage.setItem('Xyvro_LastDate', today);
-        userState.messagesSentToday = 0;
-    } else {
-        userState.messagesSentToday = parseInt(localStorage.getItem('Xyvro_MsgCount') || '0');
+
+// ==========================================
+// 6. ACCOUNT SETTINGS LOGIC
+// ==========================================
+
+// --- DROPDOWN VISIBILITY ---
+document.getElementById('profile-trigger').onclick = (e) => {
+    e.stopPropagation(); // Prevents instant closing
+    document.getElementById('settings-dropdown').classList.toggle('hidden');
+};
+
+// Close dropdown if clicking elsewhere
+window.onclick = () => {
+    document.getElementById('settings-dropdown').classList.add('hidden');
+};
+
+
+// --- VIEW PROFILE ---
+document.getElementById('view-profile-btn').onclick = (e) => {
+    e.preventDefault();
+    navigate('profile-screen');
+};
+
+// --- CLEAR HISTORY ---
+document.getElementById('clear-history-btn').onclick = (e) => {
+    e.preventDefault();
+    const userId = currentSession?.user.id;
+    if (confirm("Are you sure you want to clear your entire chat history locally?")) {
+        localStorage.removeItem(`xyvro_history_${userId}`);
+        chatMessages = [];
+        loadHistory(); // Reload to initial state
+        toast.textContent = "History cleared.";
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 2000);
     }
+};
 
-    // Wrap in microtimeout to keep the engine layout threading active during loading
-    setTimeout(async () => {
-        try {
-            chatSessions = JSON.parse(localStorage.getItem('Xyvro_Sessions') || '{}');
-        } catch(e) {
-            chatSessions = {};
-        }
 
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        if (session) {
-            userState.userId = session.user.id;
-            await syncUserWithDatabase(session.user.id, session.user.email);
-        } else {
-            userState.role = 'guest';
-        }
-
-        updateUIForLimits();
-        setupMidnightInterval();
-
-        const chatIds = Object.keys(chatSessions);
-        if (chatIds.length > 0) {
-            loadChatSession(chatIds[chatIds.length - 1]);
-        } else {
-            createNewChat();
-        }
-        
-        hideLoader(); // Close loader layout cleanly
-    }, 400); 
+// --- THEME SWITCH (LIGHT/DARK) ---
+const themeSwitch = document.getElementById('theme-switch');
+// Load preference
+if (localStorage.getItem('xyvro_theme') === 'dark') {
+    document.body.classList.replace('light-theme', 'dark-theme');
+    themeSwitch.checked = true;
 }
 
-function showLoader() { document.getElementById('storage-loader').style.display = 'flex'; }
-function hideLoader() { document.getElementById('storage-loader').style.opacity = '0'; setTimeout(() => { document.getElementById('storage-loader').style.display = 'none'; }, 400); }
+themeSwitch.onchange = () => {
+    if (themeSwitch.checked) {
+        document.body.classList.replace('light-theme', 'dark-theme');
+        localStorage.setItem('xyvro_theme', 'dark');
+    } else {
+        document.body.classList.replace('dark-theme', 'light-theme');
+        localStorage.setItem('xyvro_theme', 'light');
+    }
+};
 
-function setupMidnightInterval() {
-    setInterval(() => {
-        const today = new Date().toDateString();
-        const savedDate = localStorage.getItem('Xyvro_LastDate');
-        if (savedDate !== today) {
-            localStorage.setItem('Xyvro_MsgCount', '0');
-            localStorage.setItem('Xyvro_LastDate', today);
-            userState.messagesSentToday = 0;
-            if (userState.userId) {
-                supabaseClient.from('user_limits').update({ msg_count: 0, last_reset_date: today }).eq('id', userState.userId);
+
+// --- PROFILE NAME EDIT ---
+const editNameBtn = document.getElementById('edit-name-btn');
+const nameDisplay = document.getElementById('profile-name-display');
+const nameInputGroup = document.getElementById('name-input-group');
+const nameInput = document.getElementById('profile-name-input');
+const saveNameBtn = document.getElementById('save-name-btn');
+
+editNameBtn.onclick = () => {
+    nameDisplay.classList.add('hidden');
+    editNameBtn.classList.add('hidden');
+    nameInputGroup.classList.remove('hidden');
+    nameInput.value = nameDisplay.textContent;
+    nameInput.focus();
+};
+
+saveNameBtn.onclick = async () => {
+    const newName = nameInput.value.trim();
+    if (!newName) return alert("Name cannot be blank.");
+
+    nameDisplay.classList.remove('hidden');
+    editNameBtn.classList.remove('hidden');
+    nameInputGroup.classList.add('hidden');
+
+    // Optimization: Only update if changed
+    if (newName === profileData?.username) return;
+
+    nameDisplay.textContent = newName;
+    profileData.username = newName; // Update local state
+    
+    applyAvatarToUI(profileData.avatar_url); // Redraw default avatar based on new name
+    initChatGreeting(true); // Redraw greeting with new name
+
+    toast.textContent = "Name updated.";
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 2000);
+
+    // Backend Sync (Scoped to metadata to minimize DB calls as requested)
+    if (typeof supabase !== 'undefined' && currentSession) {
+        const { error } = await supabase.auth.updateUser({
+            data: { full_name: newName }
+        });
+        if (error) console.error("Error syncing name to backend metadata:", error);
+    }
+};
+
+
+// --- PROFILE AVATAR EDIT (LOCALLY STored BASE64 as requested) ---
+const changeAvatarBtn = document.getElementById('change-avatar-btn');
+const avatarUpload = document.getElementById('avatar-upload');
+
+changeAvatarBtn.onclick = () => avatarUpload.click();
+
+avatarUpload.onchange = function(e) {
+    const file = e.target.files[0];
+    if (file) {
+        // Strict file type check
+        if (!file.type.startsWith('image/')) return alert('Please upload an image file.');
+        if (file.size > 2000000) return alert('Image too large. Keep it under 2MB.');
+
+        const reader = new FileReader();
+        reader.onload = async function(event) {
+            const base64Avatar = event.target.result;
+            profileData.avatar_url = base64Avatar; // Update local state
+            applyAvatarToUI(base64Avatar); // Redraw all UI avatar points
+
+            toast.textContent = "Avatar updated locally.";
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 2000);
+
+            // Backend Sync (Scoped to metadata only, no Storage bucket used)
+            if (typeof supabase !== 'undefined' && currentSession) {
+                const { error } = await supabase.auth.updateUser({
+                    data: { avatar_url: base64Avatar }
+                });
+                if (error) console.error("Error syncing avatar to backend metadata:", error);
             }
-            updateUIForLimits();
-        }
-    }, 1000); 
-}
-
-async function syncUserWithDatabase(uid, email) {
-    const today = new Date().toDateString();
-    let { data: profile } = await supabaseClient.from('user_limits').select('*').eq('id', uid).single();
-
-    if (!profile) {
-        const { data: newProfile } = await supabaseClient.from('user_limits').insert([
-            { id: uid, email: email, role: 'user', msg_count: 0, last_reset_date: today }
-        ]).select().single();
-        profile = newProfile;
+        };
+        reader.readAsDataURL(file);
     }
+};
+// ==========================================
+// 7. NAVIGATION BINDINGS (Production Ready)
+// ==========================================
 
-    if (profile.last_reset_date !== today) {
-        await supabaseClient.from('user_limits').update({ msg_count: 0, last_reset_date: today }).eq('id', uid);
-        userState.messagesSentToday = 0;
-    } else {
-        userState.messagesSentToday = profile.msg_count;
-    }
+function bindProdNavigation() {
+    lucide.createIcons(); // Ensure settings icons exist
     
-    userState.role = profile.role;
-    localStorage.setItem('Xyvro_MsgCount', userState.messagesSentToday.toString());
-}
-
-function updateUIForLimits() {
-    const limitBadge = document.getElementById('limit-badge');
-    const userStatus = document.getElementById('user-status');
-    const authBtn = document.getElementById('auth-btn');
-    const maxMessages = userState.role === 'guest' ? 10 : (userState.role === 'premium' ? '∞' : 100);
+    // Auth screens
+    safeOnclick('nav-signup-btn', () => navigate('signup-screen'));
+    safeOnclick('switch-to-login', (e) => { e.preventDefault(); navigate('auth-screen'); });
+    safeOnclick('back-to-auth', () => navigate('auth-screen'));
     
-    limitBadge.innerText = `Limit: ${userState.messagesSentToday}/${maxMessages}`;
-    userStatus.innerText = userState.userId ? `${userState.role.toUpperCase()} Profile` : "Guest Account";
-    authBtn.innerText = userState.userId ? "Sign Out" : "Log In / Sign Up";
-}
+    // Account screens
+    safeOnclick('back-to-chat', () => navigate('chat-screen'));
+    safeOnclick('do-logout-btn', handleLogout);
+    safeOnclick('dropdown-logout-btn', handleLogout);
 
-function createNewChat() {
-    currentChatId = "chat_" + Date.now();
-    chatSessions[currentChatId] = {
-        title: "New Chat",
-        messages: [
-            { sender: 'ai', text: "Hello! Welcome to **XyvroAI**—the premier high-performance text assistant engineered by **Xyvro Entertainment**. \n\n*Product Identity: Version 2.0 Stable*\n*Production Founder & CEO: Aryan Pandey*\n\nHow can I assisting you on your tasks today?" }
-        ]
-    };
-    saveSessionsToLocalStorage();
-    renderSidebarHistory();
-    loadChatSession(currentChatId);
-}
+    // Legal Documents
+    ['link-pp1', 'link-tc1', 'link-pp2', 'link-pp3', 'link-tc2', 'link-pp4'].forEach(id => {
+        safeOnclick(id, (e) => { e.preventDefault(); navigate('legal-screen'); });
+    });
 
-function loadChatSession(id) {
-    currentChatId = id;
-    const currentChat = chatSessions[currentChatId];
-    const chatContainer = document.getElementById('chat-messages');
-    chatContainer.innerHTML = '';
-    
-    currentChat.messages.forEach(msg => {
-        appendMessageMarkup(msg.text, msg.sender);
+    // Password Toggle
+    document.querySelectorAll('.toggle-pass').forEach(icon => {
+        icon.onclick = function() {
+            const inputField = document.getElementById(this.getAttribute('data-target'));
+            if (inputField && inputField.type === 'password') {
+                inputField.type = 'text';
+                this.setAttribute('data-lucide', 'eye-off');
+            } else if (inputField) {
+                inputField.type = 'password';
+                this.setAttribute('data-lucide', 'eye');
+            }
+            lucide.createIcons();
+        };
+    });
+
+    // Modal Popup controls
+    safeOnclick('modal-signup-btn', () => {
+        document.getElementById('quota-modal').classList.add('hidden');
+        navigate('signup-screen');
     });
     
-    renderSidebarHistory();
+    safeOnclick('modal-upgrade-btn', () => {
+        // This will eventually link to Razorpay payment flow
+        document.getElementById('quota-modal').classList.add('hidden');
+        navigate('profile-screen');
+        setTimeout(() => alert("Redirecting to Razorpay secure payment gateway..."), 500);
+    });
+
+    safeOnclick('close-modal-btn', () => {
+        document.getElementById('quota-modal').classList.add('hidden');
+    });
 }
 
-function deleteChat(id, event) {
-    event.stopPropagation(); 
-    delete chatSessions[id];
-    saveSessionsToLocalStorage();
-    
-    const remainingIds = Object.keys(chatSessions);
-    if (remainingIds.length > 0) {
-        loadChatSession(remainingIds[remainingIds.length - 1]);
-    } else {
-        createNewChat();
-    }
+// Failsafe event binding
+function safeOnclick(id, callback) {
+    const el = document.getElementById(id);
+    if (el) el.onclick = callback;
 }
 
-function saveSessionsToLocalStorage() {
-    localStorage.setItem('Xyvro_Sessions', JSON.stringify(chatSessions));
-}
 
-function renderSidebarHistory() {
-    const listContainer = document.getElementById('chat-history-list');
-    listContainer.innerHTML = '';
-    
-    Object.keys(chatSessions).reverse().forEach(id => {
-        const item = chatSessions[id];
-        const row = document.createElement('div');
-        row.classList.add('history-item');
-        if (id === currentChatId) row.classList.add('active');
-        row.setAttribute('onclick', `loadChatSession('${id}')`);
+// ==========================================
+// 8. SUPABASE AUTH & AI INTEGRATION (Scoped Production Flow)
+// ==========================================
+
+// Backend Configuration
+const SUPABASE_URL = 'https://wlhfdibahaeeoxagaach.supabase.co'; 
+const SUPABASE_KEY = 'sb_publishable_yskxtUsaXuCClaCxpeHNvw_7EwuWycW'; // Provided anon key
+
+let supabaseClient = null;
+
+setTimeout(() => {
+    if (typeof supabase !== 'undefined') {
+        supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         
-        row.innerHTML = `
-            <span>${item.title}</span>
-            <button class="delete-chat-btn" onclick="deleteChat('${id}', event)">✕</button>
-        `;
-        listContainer.appendChild(row);
-    });
-}
+        bindProdNavigation(); // Ensure icons and basic nav work
 
-function generateCleanChatName(prompt) {
-    const clean = prompt.replace(/[^\w\s]/gi, '').trim();
-    const words = clean.split(/\s+/);
-    if (words.length === 0 || words[0] === "") return "Empty Chat";
-    
-    const sliceCount = Math.min(words.length, 3);
-    let titleResult = [];
-    for (let i = 0; i < sliceCount; i++) {
-        titleResult.push(words[i].charAt(0).toUpperCase() + words[i].slice(1).toLowerCase());
+        // --- AUTH: Guest Mode ---
+        safeOnclick('nav-guest-btn', () => {
+            if (!checkLegalRequirements('legal-agree-login')) return;
+            // Initialize local profileData for guest state
+            profileData = {
+                username: "Guest",
+                email: "guest@xyvro.ai",
+                tier: "guest",
+                messages_sent_today: 0, // Tracked only locally for guests
+                images_uploaded_today: 0
+            };
+            navigate('chat-screen');
+            updateProfileUI(); // Apply generic avatar/info
+            initChatGreeting(); // guest greeting
+            // No history saving for guests, scoped local only
+        });
+
+        // --- AUTH: Google Login (Dynamically uses window.location.origin) ---
+        safeOnclick('google-login-btn', async () => {
+            if (!checkLegalRequirements('legal-agree-login')) return;
+            const currentWebsite = window.location.origin;
+            const { error } = await supabaseClient.auth.signInWithOAuth({
+                provider: 'google',
+                options: { redirectTo: currentWebsite }
+            });
+            if (error) alert("Google Auth Error: " + error.message);
+        });
+
+        safeOnclick('google-signup-btn', async () => {
+            if (!checkLegalRequirements('legal-agree-signup')) return;
+            const currentWebsite = window.location.origin;
+            const { error } = await supabaseClient.auth.signInWithOAuth({
+                provider: 'google',
+                options: { redirectTo: currentWebsite }
+            });
+            if (error) alert("Google Auth Error: " + error.message);
+        });
+
+        // --- AUTH: Email Signup ---
+        safeOnclick('do-signup-btn', async () => {
+            if (!checkLegalRequirements('legal-agree-signup')) return;
+            
+            const name = document.getElementById('signup-name').value.trim();
+            const email = document.getElementById('signup-email').value.trim();
+            const pass = document.getElementById('signup-pass').value.trim();
+            
+            if (!name || !email || !pass) return alert("Please fill in all fields.");
+
+            const { error } = await supabaseClient.auth.signUp({
+                email: email,
+                password: pass,
+                options: { data: { full_name: name } } // Saved privately to backend metadata
+            });
+
+            if (error) alert("Signup Error: " + error.message);
+            else {
+                alert("Account created. Please check your email for confirmation.");
+                navigate('auth-screen');
+            }
+        });
+
+        // --- AUTH: Email Login ---
+        safeOnclick('do-login-btn', async () => {
+            if (!checkLegalRequirements('legal-agree-login')) return;
+            const email = document.getElementById('login-email').value.trim();
+            const pass = document.getElementById('login-pass').value.trim();
+            
+            if (!email || !pass) return alert("Please enter email and password.");
+
+            const { data, error } = await supabaseClient.auth.signInWithPassword({
+                email: email, password: pass
+            });
+
+            if (error) alert("Login Error: " + error.message);
+            // Session handling will occur on auto-auth check
+        });
+
+        // Auto-login session check on page load
+        supabaseClient.auth.getSession().then(handlePostLoginFlow);
+
+        // Listen for Auth state changes the millisecond they happen
+        supabaseClient.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_IN' && session) {
+                console.log("Auth event triggered: SIGNED_IN");
+                handlePostLoginFlow({ data: { session } });
+            }
+        });
+
     }
-    return titleResult.join(' ');
+}, 500); // 500ms for CDN load stability
+
+// --- POST-LOGIN FLOW (Secure DB Quota Fetch) ---
+async function handlePostLoginFlow({ data: { session } }) {
+    if (session) {
+        currentSession = session;
+        const user = session.user;
+        
+        // Fetch extended secure profileData from database (Profiles table in Phase 1 SQL)
+        const { data, error } = await supabaseClient
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+
+        if (error) {
+            console.error("Critical: Could not fetch secure quotas from backend:", error);
+            // Fallback profile if DB misses
+            profileData = { username: user.raw_user_metadata?.full_name, email: user.email, tier: 'normal', messages_sent_today: 0, images_uploaded_today: 0 };
+        } else {
+            profileData = data; // Set local secure state
+        }
+
+        navigate('chat-screen');
+        updateProfileUI(); // Populate settings page
+        applyAvatarToUI(profileData?.avatar_url || user.raw_user_metadata?.avatar_url); // Populate dropdown triggers
+        loadHistory(); // Load personalized local history
+    }
 }
 
-async function sendMessage() {
-    const inputField = document.getElementById('user-input');
-    const prompt = inputField.value.trim();
-    if (!prompt) return;
+// Logout handler
+async function handleLogout() {
+    if (supabaseClient) await supabaseClient.auth.signOut();
+    localStorage.removeItem(`xyvro_history_${currentSession?.user.id}`); // clear personalized history
+    currentSession = null;
+    profileData = null;
+    chatMessages = [];
+    currentBase64Image = null;
+    const inputs = ['login-email', 'login-pass', 'signup-name', 'signup-email', 'signup-pass', 'user-input'];
+    inputs.forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+    navigate('auth-screen');
+}
 
-    const maxMessages = userState.role === 'guest' ? 10 : (userState.role === 'premium' ? Infinity : 100);
+
+// ==========================================
+// 9. THE SEND LOGIC (Tiered Quotas & Delays)
+// ==========================================
+
+async function handleSend() {
+    const input = document.getElementById('user-input');
+    const promptText = input.value.trim();
+    const chatContainer = document.getElementById('chat-container');
     
-    if (userState.messagesSentToday >= maxMessages) {
-        showLimitModal();
+    if (!promptText && !currentBase64Image) return;
+
+    // --- SECURE QUOTA CHECK (Using backend data) ---
+    const tier = profileData?.tier || 'guest';
+    const messagesToday = profileData?.messages_sent_today || 0;
+    const imagesToday = profileData?.images_uploaded_today || 0;
+
+    if (promptText && messagesToday >= MSG_LIMITS[tier]) {
+        return showQuotaModal();
+    }
+    if (currentBase64Image && imagesToday >= IMG_LIMITS[tier]) {
+        // Guests cannot upload images beyond greeting, nor exceed 1 daily.
+        if (tier === 'guest') alert("Notice: Guest accounts cannot upload images for AI analysis. Upgrade to Normal or Subscribed to activate this vision feature.");
+        else alert("Notice: You have exhausted your daily image quota. Please try again tomorrow.");
+        
+        document.getElementById('chat-remove-image-btn').click(); // clear
         return;
     }
 
-    if (chatSessions[currentChatId].title === "New Chat") {
-        chatSessions[currentChatId].title = generateCleanChatName(prompt);
-    }
 
-    chatSessions[currentChatId].messages.push({ sender: 'user', text: prompt });
-    appendMessageMarkup(prompt, 'user');
-    inputField.value = '';
-    autoGrow(inputField);
+    // --- BUILD USER MESSAGE ---
+    const userMsgData = {
+        type: 'user',
+        content: promptText,
+        image: currentBase64Image, // Full bulky base64 used for direct append
+    };
+    appendMessageUI(userMsgData);
+    if (tier !== 'guest') saveToHistory(userMsgData); // Scoped private history only for normal/subscribed
 
-    appendMessageMarkup("Thinking...", "ai loading-msg");
-    const result = await callEdgeAI(prompt);
-    removeLoadingMessage();
-    
-    appendMessageMarkup(result.reply, 'ai');
-    chatSessions[currentChatId].messages.push({ sender: 'ai', text: result.reply });
-    saveSessionsToLocalStorage();
-    renderSidebarHistory();
+    // Clear inputs quickly
+    input.value = '';
+    document.getElementById('chat-remove-image-btn').click(); 
+    chatContainer.scrollTop = chatContainer.scrollHeight;
 
-    if (result.success) {
-        userState.messagesSentToday++;
-        localStorage.setItem('Xyvro_MsgCount', userState.messagesSentToday.toString());
-        
-        if (userState.userId) {
-            await supabaseClient.from('user_limits').update({ msg_count: userState.messagesSentToday }).eq('id', userState.userId);
-        }
-        updateUIForLimits();
-    }
-}
+    // Show AI Thinking indicator
+    const thinkingEl = showAiThinking("XyvroAI is Analyzing...");
 
-async function callEdgeAI(prompt) {
     try {
-        const response = await fetch("https://hwgmdwxznxmrgxeqscxo.supabase.co/functions/v1/xyvro-chat", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "apikey": SUPABASE_ANON_KEY
-            },
-            body: JSON.stringify({ prompt: prompt })
+        const payload = { prompt: promptText };
+        if (currentBase64Image && tier !== 'guest') {
+            payload.imageBase64 = currentBase64Image;
+        }
+
+        // Invoke Secure Edge Function (it handles rotation internally)
+        const { data, error } = await supabaseClient.functions.invoke('chat', {
+            body: payload
         });
 
-        const data = await response.json();
-
-        if (response.ok && data && data.reply) {
-            return { success: true, reply: data.reply };
-        } else if (data && data.error) {
-            return { success: false, reply: `Vault Error: ${data.error}` };
-        }
-        return { success: false, reply: "Polite Notice: Received empty processing stream." };
-    } catch (err) {
-        console.error(err);
-        return { success: false, reply: "Notice: Handshake Failed. Connection interrupted." };
-    }
-}
-
-function compileSyntaxHighlighting(codeText, lang) {
-    let output = codeText;
-    output = output.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    output = output.replace(/\b(function|return|if|else|let|const|var|class|export|import|from|async|await|true|false|null)\b/g, '<span class="syntax-keyword">$1</span>');
-    output = output.replace(/\b(\d+)\b/g, '<span class="syntax-number">$1</span>');
-    output = output.replace(/(["'])(.*?)\1/g, '<span class="syntax-string">$1$2$1</span>');
-    output = output.replace(/\b(\w+)(?=\()/g, '<span class="syntax-function">$1</span>');
-    output = output.replace(/(\/\/.*)/g, '<span class="syntax-comment">$1</span>');
-    return output;
-}
-
-function parseMarkdownToCompiler(text) {
-    let segments = text.split(/```/);
-    let outputHtml = "";
-
-    for (let i = 0; i < segments.length; i++) {
-        if (i % 2 === 1) { 
-            let blockData = segments[i];
-            let firstLineBreak = blockData.indexOf('\n');
-            let inferredLanguage = blockData.substring(0, firstLineBreak).trim() || "CODE";
-            let trueCodeBody = blockData.substring(firstLineBreak + 1).trim();
-            let targetId = "compiler_uid_" + Math.floor(Math.random() * 1000000);
+        if (error) throw error;
+        
+        // --- PRO PRODUCTION TIERED DELAY ---
+        const finalAiDelay = AI_DELAY[tier];
+        // The delay notification has been completely removed to keep it a secret.
+        
+        setTimeout(async () => {
+            // Update secure quotas on backend ONLY if successful privately.
+            const updates = { messages_sent_today: messagesToday + 1 };
+            if (currentBase64Image && tier !== 'guest') updates.images_uploaded_today = imagesToday + 1;
             
-            outputHtml += `
-                <div class="code-block-container">
-                    <div class="code-header">
-                        <span class="code-lang">${inferredLanguage}</span>
-                        <button class="copy-code-btn" onclick="copyCompilerBlock('${targetId}', this)">Copy Code</button>
-                    </div>
-                    <pre><code id="${targetId}">${compileSyntaxHighlighting(trueCodeBody, inferredLanguage)}</code></pre>
-                </div>
-            `;
-        } else {
-            let bodyText = segments[i];
-            bodyText = bodyText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            // Highlight bold markdown blocks **text**
-            bodyText = bodyText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            bodyText = bodyText.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>');
-            outputHtml += bodyText.replace(/\n/g, "<br>");
-        }
-    }
-    return outputHtml;
-}
+            // Local Guest tracking (no database save required as requested)
+            if (tier === 'guest') {
+                profileData.messages_sent_today = messagesToday + 1;
+                // Guest can't upload images privately anyway, so update ignored privately.
+            } else {
+                // Backend Database Sync privately to lock in quotas securely
+                const { error: quotaError } = await supabaseClient
+                    .from('profiles')
+                    .update(updates)
+                    .eq('id', currentSession.user.id);
+                
+                if (quotaError) console.error("Error securing backend quotas:", quotaError);
+                else {
+                    // Update local profileData on success
+                    profileData.messages_sent_today = updates.messages_sent_today;
+                    if (updates.images_uploaded_today) profileData.images_uploaded_today = updates.images_uploaded_today;
+                }
+            }
 
-function appendMessageMarkup(text, sender) {
-    const chatContainer = document.getElementById('chat-messages');
-    const msgDiv = document.createElement('div');
-    msgDiv.classList.add('message', sender.split(' ')[0]);
-    if(sender.includes('loading-msg')) msgDiv.classList.add('loading-msg');
-    
-    const initial = sender.includes('user') ? 'U' : 'X';
-    msgDiv.innerHTML = `<div class="avatar">${initial}</div><div class="bubble"></div>`;
-    
-    if (sender.includes('ai') && !sender.includes('loading-msg')) {
-        msgDiv.querySelector('.bubble').innerHTML = parseMarkdownToCompiler(text);
-    } else {
-        msgDiv.querySelector('.bubble').textContent = text; 
-    }
-    
-    chatContainer.appendChild(msgDiv);
-    chatContainer.scrollTop = chatContainer.scrollHeight;
-}
+            // Remove indicator and show AI reply
+            thinkingEl.remove();
+            const aiMsgData = {
+                type: 'ai',
+                content: data.reply || "No response generated."
+            };
+            appendMessageUI(aiMsgData);
+            if (tier !== 'guest') saveToHistory(aiMsgData); // Save history
 
-function copyCompilerBlock(elementId, actionButton) {
-    const targetElement = document.getElementById(elementId);
-    if (!targetElement) return;
-    navigator.clipboard.writeText(targetElement.innerText).then(() => {
-        actionButton.innerText = "Copied!";
-        setTimeout(() => { actionButton.innerText = "Copy Code"; }, 2000);
-    });
-}
+        }, finalAiDelay); // The finalAiDelay still runs in the background silently
 
-function removeLoadingMessage() {
-    const loadingMsg = document.querySelector('.loading-msg');
-    if (loadingMsg) loadingMsg.remove();
-}
-
-async function handleAuth(type) {
-    const email = document.getElementById('auth-email').value.trim();
-    const password = document.getElementById('auth-password').value.trim();
-    if (!email || !password) return alert("Please fill up all input fields.");
-
-    if (type === 'signup') {
-        const { data, error } = await supabaseClient.auth.signUp({ email, password });
-        if (error) return alert(error.message);
-        alert("Registration processed!");
-        
-        const { data: logData, error: logErr } = await supabaseClient.auth.signInWithPassword({ email, password });
-        if(logErr) return window.location.reload();
-        
-        userState.userId = logData.user.id;
-        await syncUserWithDatabase(logData.user.id, logData.user.email);
-        updateUIForLimits();
-        closeModal('auth-modal');
-    } else {
-        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-        if (error) return alert(error.message);
-        userState.userId = data.user.id;
-        await syncUserWithDatabase(data.user.id, data.user.email);
-        updateUIForLimits();
-        closeModal('auth-modal');
+    } catch (err) {
+        // ERROR MESSAGES DO NOT COUNT Private quotas kept safe.
+        console.error("Deep Backend Error:", err);
+        thinkingEl.textContent = "Error: " + (err.message || JSON.stringify(err));
+        setTimeout(() => thinkingEl.remove(), 4000); // clear indicator
     }
 }
 
-async function handleSignOut() {
-    await supabaseClient.auth.signOut();
-    userState.userId = null;
-    userState.role = 'guest';
-    userState.messagesSentToday = parseInt(localStorage.getItem('Xyvro_MsgCount') || '0');
-    updateUIForLimits();
-    createNewChat();
-}
-
-function autoGrow(element) {
-    element.style.height = "5px";
-    element.style.height = (element.scrollHeight) + "px";
-}
-function toggleSidebar() { document.getElementById('sidebar').classList.toggle('active'); }
-function openAuthModal() { if (userState.userId) { handleSignOut(); } else { openModal('auth-modal'); } }
-function showPremiumModal() { openModal('premium-modal'); }
-function showLimitModal() { openModal('limit-modal'); }
-function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-function closeModalOnOuterClick(event, id) { if (event.target === document.getElementById(id)) closeModal(id); }
-
-initApp();
+// Attach Send events
+const sendBtn = document.getElementById('send-btn');
+if (sendBtn) sendBtn.onclick = handleSend;
+const userInput = document.getElementById('user-input');
+if (userInput) userInput.onkeypress = (e) => { if (e.key === 'Enter') handleSend(); };

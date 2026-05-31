@@ -2,122 +2,186 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XyvroAI</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" async></script>
+    
+    <link rel="stylesheet" href="./style.css">
 </head>
-<body>
-    <div class="storage-loader" id="storage-loader">
-        <div class="spinner"></div>
-        <p>Securing connection to XyvroAI...</p>
+<body class="light-theme"> <div id="status-toast" class="toast hidden">System Online</div>
+
+    <div id="quota-modal" class="modal-overlay hidden">
+        <div class="glass-card modal-card">
+            <h1 class="text-center">Limit Reached</h1>
+            <p class="subtitle text-center">You have exhausted your daily allowance. Upgrade to XyvroAI Subscribed for faster answers and 500 messages/day.</p>
+            <button id="modal-signup-btn" class="btn-primary">Sign Up Free (50/day)</button>
+            <button id="modal-upgrade-btn" class="btn-primary" style="background-color: #0f172a;">Upgrade now</button>
+            <button id="close-modal-btn" class="btn-text">Close</button>
+        </div>
     </div>
 
-    <div class="app-container">
-        <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
-
-        <aside class="sidebar" id="sidebar">
-            <div class="sidebar-header">
-                <div class="logo">XyvroAI</div>
-                <button class="close-sidebar-btn" onclick="toggleSidebar()">✕</button>
-            </div>
-            <button class="new-chat-btn" onclick="createNewChat()">+ New Chat</button>
+    <div id="auth-screen" class="screen">
+        <div class="glass-card">
+            <h1 class="brand-title">XyvroAI</h1>
+            <p class="subtitle text-center">Enter your details to continue.</p>
             
-            <div class="chat-history-list" id="chat-history-list"></div>
+            <input type="email" id="login-email" placeholder="Email Address">
             
-            <div class="sidebar-footer">
-                <div class="legal-links">
-                    <span onclick="openModal('privacy-modal')">Privacy Policy</span> • 
-                    <span onclick="openModal('terms-modal')">Terms</span>
+            <div class="password-wrapper">
+                <input type="password" id="login-pass" placeholder="Password">
+                <i data-lucide="eye" class="pass-icon toggle-pass" data-target="login-pass"></i>
+            </div>
+            
+            <div class="legal-checkbox-container">
+                <input type="checkbox" id="legal-agree-login">
+                <label for="legal-agree-login">I agree to the <a href="#" id="link-pp1">PP</a>, <a href="#" id="link-tc1">T&C</a>, and <a href="#" id="link-pp2">Payment Policy</a>.</label>
+            </div>
+
+            <button id="do-login-btn" class="btn-primary">Log In</button>
+            
+            <button id="google-login-btn" class="btn-outline google-btn">
+                <svg class="google-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
+                Continue with Google
+            </button>
+            
+            <div class="action-row mt-4">
+                <button id="nav-signup-btn" class="btn-text">Don't have an account? Sign Up</button>
+                <button id="nav-guest-btn" class="btn-text text-muted">Explore as Guest (10/day)</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="signup-screen" class="screen hidden">
+        <div class="glass-card">
+            <h1 class="brand-title">Create Account</h1>
+            <input type="text" id="signup-name" placeholder="Full Name">
+            <input type="email" id="signup-email" placeholder="Email Address">
+            
+            <div class="password-wrapper">
+                <input type="password" id="signup-pass" placeholder="Password">
+                <i data-lucide="eye" class="pass-icon toggle-pass" data-target="signup-pass"></i>
+            </div>
+
+            <div class="legal-checkbox-container">
+                <input type="checkbox" id="legal-agree-signup">
+                <label for="legal-agree-signup">I agree to the <a href="#" id="link-pp3">PP</a>, <a href="#" id="link-tc2">T&C</a>, and <a href="#" id="link-pp4">Payment Policy</a>.</label>
+            </div>
+            
+            <button id="do-signup-btn" class="btn-primary">Sign Up</button>
+            
+            <p class="switch-auth">Already have an account? <a href="#" id="switch-to-login">Log in here</a></p>
+        </div>
+    </div>
+
+    <div id="profile-screen" class="screen hidden">
+        <header class="top-bar glass-top">
+            <button id="back-to-chat" class="icon-btn"><i data-lucide="arrow-left"></i></button>
+            <h2 class="brand-title-small">Account</h2>
+            <div style="width: 24px;"></div>
+        </header>
+        <div class="scrollable-content pt-80">
+            <div class="glass-card profile-details">
+                <div class="avatar-large-container">
+                    <img id="profile-avatar-image" class="avatar-large" src="" alt="Default Avatar">
+                    <button id="change-avatar-btn" class="icon-btn change-avatar-icon"><i data-lucide="pencil"></i></button>
+                    <input type="file" id="avatar-upload" accept="image/*" hidden>
                 </div>
-                <div class="user-info">
-                    <span id="user-status">Guest Account</span>
-                    <span id="limit-badge" class="badge">Limit: 0/10</span>
+
+                <div class="name-edit-box mt-4">
+                    <h2 id="profile-name-display">User Name</h2>
+                    <button id="edit-name-btn" class="icon-btn"><i data-lucide="pencil"></i></button>
+                    <div id="name-input-group" class="hidden">
+                        <input type="text" id="profile-name-input">
+                        <button id="save-name-btn" class="icon-btn"><i data-lucide="check"></i></button>
+                    </div>
                 </div>
-                <button id="auth-btn" class="auth-btn" onclick="openAuthModal()">Log In / Sign Up</button>
-                <div class="branding">© Xyvro Entertainment</div>
-            </div>
-        </aside>
-
-        <main class="chat-area">
-            <header class="top-nav">
-                <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
-                <h1 class="nav-title">XyvroAI</h1>
-                <button class="premium-btn" onclick="showPremiumModal()">Go Premium</button>
-            </header>
-
-            <div class="chat-messages" id="chat-messages"></div>
-
-            <footer class="input-container">
-                <div class="input-box-wrapper">
-                    <textarea id="user-input" placeholder="Message XyvroAI..." rows="1" oninput="autoGrow(this)"></textarea>
-                    <button id="send-btn" onclick="sendMessage()">➔</button>
+                <p id="profile-email-display" class="subtitle">user@email.com</p>
+                
+                <div class="subscription-box">
+                    <h3>Current Plan</h3>
+                    <div id="profile-tier-badge" class="badge">XyvroAI Normal</div>
+                    <button id="razorpay-upgrade-btn" class="btn-primary mt-4" style="background-color: #0f172a;">Upgrade via Razorpay</button>
                 </div>
-                <p class="disclaimer">XyvroAI can make mistakes. Check important info</p>
-            </footer>
-        </main>
-    </div>
-
-    <div class="modal" id="auth-modal" onclick="closeModalOnOuterClick(event, 'auth-modal')">
-        <div class="modal-content">
-            <h2>Welcome to XyvroAI</h2>
-            <p>Access 100 daily messages securely across systems.</p>
-            <input type="email" id="auth-email" class="modal-input" placeholder="Enter email address">
-            <input type="password" id="auth-password" class="modal-input" placeholder="Enter password">
-            <div class="auth-button-row">
-                <button class="auth-action-btn signup-color" onclick="handleAuth('signup')">Create Account</button>
-                <button class="auth-action-btn login-color" onclick="handleAuth('login')">Log In</button>
-            </div>
-            <div class="modal-footer-wrapper">
-                <button class="close-btn" onclick="closeModal('auth-modal')">Cancel</button>
+                
+                <button id="do-logout-btn" class="btn-outline text-red mt-4">Log Out</button>
             </div>
         </div>
     </div>
 
-    <div class="modal" id="limit-modal" onclick="closeModalOnOuterClick(event, 'limit-modal')">
-        <div class="modal-content">
-            <h2>Daily Limit Reached</h2>
-            <p id="limit-modal-text">You have exhausted your message allowance parameters for today.</p>
-            <div class="auth-button-row">
-                <button class="auth-action-btn login-color" onclick="openAuthModal()">Log In / Sign Up</button>
-            </div>
-            <div class="modal-footer-wrapper">
-                <button class="close-btn" onclick="closeModal('limit-modal')">Cancel</button>
+    <div id="legal-screen" class="screen hidden">
+        <header class="top-bar glass-top">
+            <button id="back-to-auth" class="icon-btn"><i data-lucide="arrow-left"></i></button>
+            <h2 class="brand-title-small">Legal Policies</h2>
+            <div style="width: 24px;"></div>
+        </header>
+        <div class="scrollable-content pt-80">
+            <div class="glass-card doc-card">
+                <h3 id="doc-pp">1. Privacy Policy (PP)</h3>
+                <p class="sub-text">We strictly protect user data.</p>
+                
+                <h3 class="mt-4" id="doc-tc">2. Terms and Conditions (T&C)</h3>
+                <p class="sub-text">User guidelines and API rules.</p>
+
+                <h3 class="mt-4" id="doc-pay">3. Payment & Refund Policy (PP)</h3>
+                <p class="sub-text">Razorpay requirements.</p>
             </div>
         </div>
     </div>
 
-    <div class="modal" id="privacy-modal" onclick="closeModalOnOuterClick(event, 'privacy-modal')">
-        <div class="modal-content legal-content">
-            <h2>Privacy Policy</h2>
-            <div class="legal-text-box">
-                <p><strong>Effective Date: May 2026</strong></p>
-                <p>Welcome to XyvroAI, owned and operated by Xyvro Entertainment. Your chat messages are stored locally inside your personal device sandbox configuration ecosystem via secure localStorage engines.</p>
+    <div id="chat-screen" class="screen hidden">
+        <header class="top-bar glass-top">
+            <h2 class="brand-title-small">XyvroAI</h2>
+            
+            <div class="settings-avatar-container">
+                <img id="profile-trigger" class="avatar-box" src="" alt="U">
+                
+                <div id="settings-dropdown" class="glass-card dropdown-menu hidden">
+                    <p class="dropdown-header">Account</p>
+                    <a href="#" id="view-profile-btn" class="dropdown-item"><i data-lucide="user"></i>View Profile</a>
+                    
+                    <p class="dropdown-header mt-4">Preferences</p>
+                    <div class="dropdown-item toggle-theme-item">
+                        <i data-lucide="sun"></i>
+                        <span>Dark Mode</span>
+                        <input type="checkbox" id="theme-switch" class="theme-switch-checkbox">
+                    </div>
+                    
+                    <a href="#" id="clear-history-btn" class="dropdown-item"><i data-lucide="trash-2"></i>Clear History</a>
+                    
+                    <p class="dropdown-header mt-4">Help</p>
+                    <p class="dropdown-item support-email">xyvroentertainment@gmail.com</p>
+                    
+                    <a href="#" id="dropdown-logout-btn" class="dropdown-item text-red mt-4"><i data-lucide="log-out"></i>Log Out</a>
+                </div>
             </div>
-            <button class="close-btn" onclick="closeModal('privacy-modal')">I Understand</button>
-        </div>
-    </div>
+        </header>
 
-    <div class="modal" id="terms-modal" onclick="closeModalOnOuterClick(event, 'terms-modal')">
-        <div class="modal-content legal-content">
-            <h2>Terms & Conditions</h2>
-            <div class="legal-text-box">
-                <p><strong>Last Updated: May 2026</strong></p>
-                <p>By interacting with XyvroAI, an intellectual service production property of Xyvro Entertainment (CEO: Aryan Pandey), you fully consent to our technical runtime architecture models.</p>
+        <main class="chat-container" id="chat-container"></main>
+
+        <footer class="input-container glass-bottom">
+            <div id="chat-image-preview-container" class="chat-preview-thumbnail hidden">
+                <img id="chat-image-preview" src="" alt="Upload Preview">
+                <button id="chat-remove-image-btn" class="icon-btn"><i data-lucide="x"></i></button>
             </div>
-            <button class="close-btn" onclick="closeModal('terms-modal')">Accept Terms</button>
-        </div>
+            
+            <div class="input-box">
+                <button id="chat-attach-btn" class="icon-only-btn"><i data-lucide="paperclip"></i></button>
+                <input type="file" id="chat-file-upload" accept="image/*" hidden>
+                
+                <input type="text" id="user-input" placeholder="Ask XyvroAI anything...">
+                <button id="send-btn"><i data-lucide="arrow-right"></i></button>
+            </div>
+        </footer>
     </div>
 
-    <div class="modal" id="premium-modal" onclick="closeModalOnOuterClick(event, 'premium-modal')">
-        <div class="modal-content">
-            <h2>XyvroAI Premium</h2>
-            <p>Get unlimited supercharged requests for ₹199/month.</p>
-            <div class="error-box">⚠️ Under Maintenance: Razorpay integration is coming soon!</div>
-            <button class="close-btn" onclick="closeModal('premium-modal')">Close</button>
-        </div>
-    </div>
-
-    <script src="app.js"></script>
+    <script src="./app.js"></script>
 </body>
 </html>
