@@ -559,7 +559,7 @@ if (upgradePaymentBtn) {
         }
 
         const options = {
-            "key": "", 
+            "key": "rzp_live_SwGF2PDmWVkSjC", 
             "amount": "100", 
             "currency": "INR",
             "name": "Xyvro Entertainment",
