@@ -963,8 +963,8 @@ safeOnclick('razorpay-pay-btn', async function() {
     }
 
     const options = {
-        "key": "rzp_test_SwBr8YmLQkpIXu", 
-        "amount": "100", 
+        "key": "rzp_live_SwGF2PDmWVkSjC", 
+        "amount": "19900", // 19900 paise = exactly ₹199 INR
         "currency": "INR",
         "name": "Xyvro Entertainment",
         "description": "Pro Tier Subscription - 28 Days Lifecycle",
@@ -990,7 +990,7 @@ safeOnclick('razorpay-pay-btn', async function() {
 
                     if (error) {
                         console.error("Supabase Write Error:", error);
-                        alert("Database error: " + error.message + "\\n\\n(Make sure you added the 'subscription_expires_at' column in Supabase!)");
+                        alert("Database error: " + error.message + "\n\n(Make sure you added the 'subscription_expires_at' column in Supabase!)");
                     } else if (!data || data.length === 0) {
                         alert("Payment succeeded, but Supabase blocked the update. Check your RLS policies in the database.");
                     } else {
