@@ -963,38 +963,45 @@ safeOnclick('razorpay-pay-btn', async function() {
     }
 
     const options = {
-        "key": "rzp_live_SwGF2PDmWVkSjC", 
+        "key": "rzp_test_SwBr8YmLQkpIXu", 
         "amount": "100", 
         "currency": "INR",
         "name": "Xyvro Entertainment",
         "description": "Pro Tier Subscription - 28 Days Lifecycle",
         "image": generateDefaultAvatarUrl("Xyvro"),
-        "handler": async function (response) {
-            if (response.razorpay_payment_id) {
-                const activatedAt = new Date();
-                const expiresAt = new Date();
-                expiresAt.setDate(activatedAt.getDate() + 28); 
+        "handler": async (response) => {
+            try {
+                if (response.razorpay_payment_id) {
+                    const activatedAt = new Date();
+                    const expiresAt = new Date();
+                    expiresAt.setDate(activatedAt.getDate() + 28); 
 
-                const databaseUpdates = {
-                    tier: 'subscribed',
-                    subscribed_at: activatedAt.toISOString(),
-                    subscription_expires_at: expiresAt.toISOString()
-                };
+                    const databaseUpdates = {
+                        tier: 'subscribed',
+                        subscribed_at: activatedAt.toISOString(),
+                        subscription_expires_at: expiresAt.toISOString()
+                    };
 
-                const { error } = await supabaseClient
-                    .from('profiles')
-                    .update(databaseUpdates)
-                    .eq('id', currentSession.user.id);
+                    const { data, error } = await supabaseClient
+                        .from('profiles')
+                        .update(databaseUpdates)
+                        .eq('id', currentSession.user.id)
+                        .select(); 
 
-                if (error) {
-                    console.error("Transactional database write error:", error);
-                    alert("Database configuration write failure. Reach out directly to support.");
-                } else {
-                    Object.assign(profileData, databaseUpdates);
-                    alert("Payment Captured! XyvroAI Pro attributes are now mapped to your account profile.");
-                    navigate('profile-screen');
-                    updateProfileUI();
+                    if (error) {
+                        console.error("Supabase Write Error:", error);
+                        alert("Database error: " + error.message + "\\n\\n(Make sure you added the 'subscription_expires_at' column in Supabase!)");
+                    } else if (!data || data.length === 0) {
+                        alert("Payment succeeded, but Supabase blocked the update. Check your RLS policies in the database.");
+                    } else {
+                        Object.assign(profileData, databaseUpdates);
+                        alert("Payment Captured! XyvroAI Pro attributes are now mapped to your account profile.");
+                        navigate('profile-screen');
+                        updateProfileUI();
+                    }
                 }
+            } catch (err) {
+                alert("Unexpected pipeline error during payment confirmation: " + err.message);
             }
         },
         "prefill": {
