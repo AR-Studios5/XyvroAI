@@ -89,12 +89,6 @@ document.body.addEventListener('click', function(e) {
         const provider = inlineBtn.getAttribute('data-provider');
         
         if (provider && client) {
-            // Save prompt prior to redirecting to preserve workspace flow state
-            const currentPromptInput = document.getElementById('user-input')?.value || "";
-            if (currentPromptInput.trim() !== "") {
-                localStorage.setItem('xyvro_pending_prompt', currentPromptInput.trim());
-            }
-            
             const options = { redirectTo: window.location.origin };
             if (provider === 'github') options.scopes = 'repo read:user user:email';
             if (provider === 'google') options.scopes = 'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events';
@@ -258,15 +252,6 @@ function saveToHistory(msg) {
     saveChats();
 }
 
-function removeAuthWarningsFromChat() {
-    const activeAuthIndicators = document.querySelectorAll('.ai-message');
-    activeAuthIndicators.forEach(msg => {
-        if (msg.innerHTML.includes('oauth-inline-btn') || msg.innerHTML.includes('Authorize')) {
-            msg.remove();
-        }
-    });
-}
-
 function switchChat(id) {
     currentChatId = id;
     renderSidebar(); 
@@ -373,7 +358,6 @@ safeOnclick('context-delete', () => {
 
 function purgeLocalUserData() {
     localStorage.removeItem('xyvro_guest_session');
-    localStorage.removeItem('xyvro_pending_prompt');
     if (currentSession?.user?.id) {
         localStorage.removeItem(`xyvro_chats_${currentSession.user.id}`);
     }
@@ -394,7 +378,7 @@ function getGuestUsage() {
         let data = JSON.parse(stored);
         if (data.date === today) return data;
     }
-    return { date: today, messages: 0, date: today };
+    return { date: today, messages: 0, images: 0 };
 }
 
 function saveGuestUsage(messages, images) {
@@ -435,9 +419,6 @@ function applyAvatarToUI(imgUrl) {
     });
 }
 
-// ==========================================
-// 5. ATTACHMENT & UI EVENT HUB
-// ==========================================
 function updateProfileUI() {
     if (!profileData) return;
     const name = profileData.username || "User Account";
@@ -520,6 +501,7 @@ function appendMessageUI(msg, animate = true, useTypingEffect = false) {
                 <i data-lucide="link"></i> Authorize AI Integration
             </button>`;
         } else {
+            // Check for client-side hardware action simulation tokens returned by the backend
             if (msg.content.includes("[SYSTEM HARDWARE SIMULATION ENGAGED]") || msg.content.includes("MAPPED ALARM STATE")) {
                 handleClientHardwareExecution(msg.content);
             }
@@ -542,7 +524,9 @@ function appendMessageUI(msg, animate = true, useTypingEffect = false) {
     return msgDiv;
 }
 
+// Client Hardware Register abstraction parser loop
 function handleClientHardwareExecution(responseText) {
+    console.log("Parsing hardware simulation payload instructions...");
     if (responseText.includes("alarm")) {
         const timeMatch = responseText.match(/\b\d{2}:\d{2}\s*(?:AM|PM)?\b/i);
         const logTime = timeMatch ? timeMatch[0] : "Scheduled Window";
@@ -576,6 +560,9 @@ function triggerQuotaModal(title, message, displayMode) {
     if(modal) modal.classList.remove('hidden');
 }
 
+// ==========================================
+// 5. ATTACHMENT & UI EVENT HUB
+// ==========================================
 safeOnclick('chat-attach-btn', () => {
     const upload = document.getElementById('chat-file-upload');
     if (upload) upload.click();
@@ -776,6 +763,7 @@ function initAppCore() {
         return;
     }
     
+    // Bind securely to window context space to prevent event delegation button freezes
     supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     window.supabaseClient = supabaseClient;
     
@@ -854,9 +842,7 @@ function initAppCore() {
 
     supabaseClient.auth.getSession().then(handlePostLoginFlow);
     supabaseClient.auth.onAuthStateChange((event, session) => {
-        if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) {
-            handlePostLoginFlow({ data: { session } });
-        }
+        if (event === 'SIGNED_IN' && session) handlePostLoginFlow({ data: { session } });
     });
 }
 
@@ -900,19 +886,6 @@ async function handlePostLoginFlow({ data: { session } }) {
         
         injectSidebarUI();
         loadChatSessions();
-
-        // AUTOMATIC DETECTION & WORKFLOW RESUMPTION LOOP
-        const pendingPrompt = localStorage.getItem('xyvro_pending_prompt');
-        if (pendingPrompt && pendingPrompt.trim() !== "") {
-            localStorage.removeItem('xyvro_pending_prompt');
-            removeAuthWarningsFromChat();
-            
-            const inputField = document.getElementById('user-input');
-            if (inputField) {
-                inputField.value = pendingPrompt;
-                handleSend();
-            }
-        }
     }
 }
 
@@ -973,14 +946,26 @@ async function handleSend() {
         const payload = { prompt: promptText };
         if (imageSentThisTurn && tier !== 'guest') payload.imageBase64 = imageSentThisTurn;
 
-        // Extract fresh current JWT authorization token directly from context
-        const sessionToken = currentSession?.access_token || (await supabaseClient.auth.getSession()).data.session?.access_token;
+        // Force a fresh refresh retrieve loop on the active session variables from memory storage registers
+        const sessionRefreshResponse = await supabaseClient.auth.getSession();
+        const activeSessionObj = sessionRefreshResponse.data.session || currentSession;
+        
+        const sessionToken = activeSessionObj?.access_token;
+        const oAuthProvToken = activeSessionObj?.provider_token; // Extracts the provider token on-demand!
+
+        // We build a bulletproof direct header map injection profile
+        const customRequestHeaders = {
+            'Authorization': `Bearer ${sessionToken}`
+        };
+        
+        // If the provider_token exists in the session, we force inject it straight into the request headers!
+        if (oAuthProvToken) {
+            customRequestHeaders['X-Provider-Token'] = oAuthProvToken;
+        }
 
         const { data, error } = await supabaseClient.functions.invoke('chat', { 
             body: payload,
-            headers: {
-                'Authorization': `Bearer ${sessionToken}`
-            }
+            headers: customRequestHeaders
         });
         if (error) throw error;
 
@@ -1017,13 +1002,6 @@ async function handleSend() {
             setTimeout(() => thinkingEl.remove(), 4000);
         }
     }
-}
-
-safeOnclick('send-btn', handleSend);
-
-const userInputField = document.getElementById('user-input');
-if (userInputField) {
-    userInputField.onkeypress = (e) => { if (e.key === 'Enter') handleSend(); };
 }
 
 // ==========================================
