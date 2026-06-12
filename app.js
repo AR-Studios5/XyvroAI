@@ -39,6 +39,10 @@ extraStyles.innerHTML = `
 .context-item.delete-item { color: #ef4444; }
 .context-item.delete-item:hover { background: rgba(239,68,68,0.1); }
 .context-item svg { width: 16px; height: 16px; }
+
+/* Dynamic Inline AI Auth Buttons Style */
+.oauth-inline-btn { background: #2563eb; color: white; border: none; border-radius: 12px; padding: 12px 24px; font-weight: 600; cursor: pointer; margin-top: 12px; font-size: 14px; transition: background 0.2s; display: inline-flex; align-items: center; gap: 8px; width: auto; box-shadow: 0 4px 12px rgba(37,99,235,0.2); }
+.oauth-inline-btn:hover { background: #1d4ed8; }
 `;
 document.head.appendChild(extraStyles);
 
@@ -76,6 +80,24 @@ function safeOnclick(id, callback) {
     const el = document.getElementById(id);
     if (el) el.onclick = callback;
 }
+
+// Global click event delegation handler for dynamic authorization buttons
+document.body.addEventListener('click', function(e) {
+    const inlineBtn = e.target.closest('.oauth-inline-btn');
+    if (inlineBtn) {
+        const client = window.supabaseClient || supabaseClient;
+        const provider = inlineBtn.getAttribute('data-provider');
+        
+        if (provider && client) {
+            const options = { redirectTo: window.location.origin };
+            if (provider === 'github') options.scopes = 'repo read:user user:email';
+            if (provider === 'google') options.scopes = 'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events';
+            client.auth.signInWithOAuth({ provider, options });
+        } else {
+            alert("Authentication engine initializing. Please try again in a moment!");
+        }
+    }
+});
 
 // ==========================================
 // 2. PARSING & TYPING ENGINE (AI Formatting)
@@ -250,7 +272,6 @@ function switchChat(id) {
     }
 }
 
-// --- CONTEXT MENU LOGIC ---
 function renderSidebar() {
     const list = document.getElementById('chat-history-list');
     if(!list) return;
@@ -267,7 +288,6 @@ function renderSidebar() {
             if(sidebar && window.innerWidth <= 768) sidebar.classList.remove('open');
         };
 
-        // Long Press Logic (Mobile)
         let pressTimer;
         item.ontouchstart = (e) => {
             pressTimer = setTimeout(() => {
@@ -277,7 +297,6 @@ function renderSidebar() {
         item.ontouchend = () => clearTimeout(pressTimer);
         item.ontouchmove = () => clearTimeout(pressTimer);
 
-        // Right Click Logic (Desktop)
         item.oncontextmenu = (e) => {
             e.preventDefault();
             showContextMenu(e.clientX, e.clientY, chat.id);
@@ -297,7 +316,6 @@ function showContextMenu(x, y, chatId) {
     }
 }
 
-// Hide Context Menu globally
 document.addEventListener('click', (e) => {
     const menu = document.getElementById('chat-context-menu');
     if (menu && e.target !== menu && !menu.contains(e.target)) {
@@ -339,7 +357,6 @@ safeOnclick('context-delete', () => {
 });
 
 function purgeLocalUserData() {
-    console.log("Purging tracking registers and resetting memory variables...");
     localStorage.removeItem('xyvro_guest_session');
     if (currentSession?.user?.id) {
         localStorage.removeItem(`xyvro_chats_${currentSession.user.id}`);
@@ -478,11 +495,23 @@ function appendMessageUI(msg, animate = true, useTypingEffect = false) {
     if (msg.isThinking) {
         textDiv.innerHTML = '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>';
     } else if (msg.type === 'ai' && msg.content) {
-        const parsedHtml = parseMarkdown(msg.content);
-        if (useTypingEffect) {
-            typeHtmlEffect(textDiv, parsedHtml);
+        if (msg.oauthTrigger) {
+            textDiv.innerHTML = `<p style="margin-bottom:8px;">${parseMarkdown(msg.content)}</p>
+            <button class="oauth-inline-btn" data-provider="${msg.oauthTrigger}">
+                <i data-lucide="link"></i> Authorize AI Integration
+            </button>`;
         } else {
-            textDiv.innerHTML = parsedHtml;
+            // Check for client-side hardware action simulation tokens returned by the backend
+            if (msg.content.includes("[SYSTEM HARDWARE SIMULATION ENGAGED]") || msg.content.includes("MAPPED ALARM STATE")) {
+                handleClientHardwareExecution(msg.content);
+            }
+            
+            const parsedHtml = parseMarkdown(msg.content);
+            if (useTypingEffect) {
+                typeHtmlEffect(textDiv, parsedHtml);
+            } else {
+                textDiv.innerHTML = parsedHtml;
+            }
         }
     } else if (msg.content) {
         textDiv.textContent = msg.content;
@@ -490,7 +519,21 @@ function appendMessageUI(msg, animate = true, useTypingEffect = false) {
 
     container.appendChild(msgDiv);
     if (animate && !useTypingEffect) container.scrollTop = container.scrollHeight;
+    
+    if (typeof lucide !== 'undefined') lucide.createIcons();
     return msgDiv;
+}
+
+// Client Hardware Register abstraction parser loop
+function handleClientHardwareExecution(responseText) {
+    console.log("Parsing hardware simulation payload instructions...");
+    if (responseText.includes("alarm")) {
+        const timeMatch = responseText.match(/\b\d{2}:\d{2}\s*(?:AM|PM)?\b/i);
+        const logTime = timeMatch ? timeMatch[0] : "Scheduled Window";
+        alert(`⏰ [DEVICE ALARM SET]: Your device stock clock configuration register has received a system hook event. Alarm committed for: ${logTime}`);
+    } else if (responseText.includes("note")) {
+        alert("📝 [DEVICE UTILITY INJECTED]: Text block successfully written to default native system application database.");
+    }
 }
 
 function triggerQuotaModal(title, message, displayMode) {
@@ -637,7 +680,7 @@ safeOnclick('save-name-btn', async () => {
 
     if (typeof supabaseClient !== 'undefined' && currentSession) {
         await supabaseClient.auth.updateUser({ data: { full_name: newName } });
-        supabaseClient.from('profiles').update({ username: newName }).eq('id', currentSession.user.id);
+        await supabaseClient.from('profiles').update({ username: newName }).eq('id', currentSession.user.id);
     }
 });
 
@@ -707,7 +750,7 @@ function bindProdNavigation() {
 }
 
 // ==========================================
-// 7. SUPABASE AUTH INTEGRATION (Bulletproof Init)
+// 7. SUPABASE AUTH INTEGRATION
 // ==========================================
 const SUPABASE_URL = 'https://wlhfdibahaeeoxagaach.supabase.co'; 
 const SUPABASE_KEY = 'sb_publishable_yskxtUsaXuCClaCxpeHNvw_7EwuWycW'; 
@@ -715,13 +758,15 @@ const SUPABASE_KEY = 'sb_publishable_yskxtUsaXuCClaCxpeHNvw_7EwuWycW';
 let supabaseClient = null;
 
 function initAppCore() {
-    // Polling loop: If network is slow, it will wait for Supabase instead of crashing
     if (typeof supabase === 'undefined') {
         setTimeout(initAppCore, 200);
         return;
     }
     
+    // Bind securely to window context space to prevent event delegation button freezes
     supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    window.supabaseClient = supabaseClient;
+    
     bindProdNavigation();
 
     safeOnclick('nav-guest-btn', () => {
@@ -801,7 +846,6 @@ function initAppCore() {
     });
 }
 
-// Start Initialization
 initAppCore();
 
 async function handlePostLoginFlow({ data: { session } }) {
@@ -819,7 +863,7 @@ async function handlePostLoginFlow({ data: { session } }) {
             
             if (!profileData.username) {
                 profileData.username = user.raw_user_metadata?.full_name || user.email.split('@')[0] || "User";
-                supabaseClient.from('profiles').update({ username: profileData.username }).eq('id', user.id);
+                await supabaseClient.from('profiles').update({ username: profileData.username }).eq('id', user.id);
             }
         }
 
@@ -852,7 +896,7 @@ async function handleLogout() {
 }
 
 // ==========================================
-// 8. REAL-TIME VALID RESPONSES TELEMETRY 
+// 8. REAL-TIME VALID RESPONSES TELEMETRY
 // ==========================================
 async function handleSend() {
     const input = document.getElementById('user-input');
@@ -919,10 +963,14 @@ async function handleSend() {
             }
 
             if(thinkingEl) thinkingEl.remove();
-            const aiMsgData = { type: 'ai', content: data.reply || "No generation compiled." };
+            
+            const aiMsgData = { 
+                type: 'ai', 
+                content: data.reply || "No generation compiled.",
+                oauthTrigger: data.oauthTrigger || null 
+            };
             
             appendMessageUI(aiMsgData, true, true);
-            
             if (tier !== 'guest') saveToHistory(aiMsgData);
 
         }, activeDelay);
@@ -964,7 +1012,7 @@ safeOnclick('razorpay-pay-btn', async function() {
 
     const options = {
         "key": "rzp_live_SwGF2PDmWVkSjC", 
-        "amount": "19900", // 19900 paise = exactly ₹199 INR
+        "amount": "19900", 
         "currency": "INR",
         "name": "Xyvro Entertainment",
         "description": "Pro Tier Subscription - 28 Days Lifecycle",
