@@ -89,10 +89,10 @@ document.body.addEventListener('click', function(e) {
         const provider = inlineBtn.getAttribute('data-provider');
         
         if (provider && client) {
-            // Save the current input prompt so we can run it automatically the second the page reloads after authorization!
-            const lastPromptInput = document.getElementById('user-input')?.value || "";
-            if (lastPromptInput.trim() !== "") {
-                localStorage.setItem('xyvro_pending_prompt', lastPromptInput.trim());
+            // CRITICAL STEP: Store your input prompt text locally BEFORE loading the popup redirects
+            const currentPromptInput = document.getElementById('user-input')?.value || "";
+            if (currentPromptInput.trim() !== "") {
+                localStorage.setItem('xyvro_pending_prompt', currentPromptInput.trim());
             }
             
             const options = { redirectTo: window.location.origin };
@@ -113,7 +113,7 @@ function parseMarkdown(text) {
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
         return `<div class="code-container"><div class="code-header"><span>${lang || 'code'}</span><button class="copy-btn" onclick="window.copyCodeToClipboard(this)">Copy</button></div><pre class="code-content"><code>${code}</code></pre></div>`;
     });
-    html = html.replace(/\*\*(.*?)\*\"/g, '<strong>$1</strong>');
+    html = html.replace(/\*\=(.*?)\*\//g, '<strong>$1</strong>');
     html = html.replace(/\n/g, '<br>');
     return html;
 }
@@ -256,6 +256,16 @@ function saveToHistory(msg) {
         renderSidebar();
     }
     saveChats();
+}
+
+// Wipes auth warnings instantly once listener state changes are registered
+function removeAuthWarningsFromChat() {
+    const activeAuthIndicators = document.querySelectorAll('.ai-message');
+    activeAuthIndicators.forEach(msg => {
+        if (msg.innerHTML.includes('oauth-inline-btn') || msg.innerHTML.includes('Authorize')) {
+            msg.remove();
+        }
+    });
 }
 
 function switchChat(id) {
@@ -426,6 +436,9 @@ function applyAvatarToUI(imgUrl) {
     });
 }
 
+// ==========================================
+// 5. ATTACHMENT & UI EVENT HUB
+// ==========================================
 function updateProfileUI() {
     if (!profileData) return;
     const name = profileData.username || "User Account";
@@ -564,9 +577,6 @@ function triggerQuotaModal(title, message, displayMode) {
     if(modal) modal.classList.remove('hidden');
 }
 
-// ==========================================
-// 5. ATTACHMENT & UI EVENT HUB
-// ==========================================
 safeOnclick('chat-attach-btn', () => {
     const upload = document.getElementById('chat-file-upload');
     if (upload) upload.click();
@@ -843,9 +853,12 @@ function initAppCore() {
         if (error) alert(error.message);
     });
 
+    // Real-Time Session Status Listener to immediately execute commands post-authorization
     supabaseClient.auth.getSession().then(handlePostLoginFlow);
     supabaseClient.auth.onAuthStateChange((event, session) => {
-        if (event === 'SIGNED_IN' && session) handlePostLoginFlow({ data: { session } });
+        if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) {
+            handlePostLoginFlow({ data: { session } });
+        }
     });
 }
 
@@ -890,17 +903,15 @@ async function handlePostLoginFlow({ data: { session } }) {
         injectSidebarUI();
         loadChatSessions();
 
-        // JUST-IN-TIME POST-AUTHORIZATION FIRING EXTRACTION SYSTEM
-        // Checks if there's a stored task prompt waiting from before the popup redirect occurred!
+        // AUTOMATIC DETECTION & WORKFLOW RESUMPTION
         const pendingPrompt = localStorage.getItem('xyvro_pending_prompt');
         if (pendingPrompt && pendingPrompt.trim() !== "") {
             localStorage.removeItem('xyvro_pending_prompt');
             
-            // Wipe any placeholder error alerts from the user chat log viewport container
-            const container = document.getElementById('chat-container');
-            if (container) container.innerHTML = '';
+            // Clear out the stale authorization prompt warnings
+            removeAuthWarningsFromChat();
             
-            // Put text back into input bar container context box and call send thread
+            // Re-populate the user message input bar and fire off the pipeline instantly
             const inputField = document.getElementById('user-input');
             if (inputField) {
                 inputField.value = pendingPrompt;
