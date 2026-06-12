@@ -89,7 +89,7 @@ document.body.addEventListener('click', function(e) {
         const provider = inlineBtn.getAttribute('data-provider');
         
         if (provider && client) {
-            // CRITICAL STEP: Store your input prompt text locally BEFORE loading the popup redirects
+            // Save prompt prior to redirecting to preserve workspace flow state
             const currentPromptInput = document.getElementById('user-input')?.value || "";
             if (currentPromptInput.trim() !== "") {
                 localStorage.setItem('xyvro_pending_prompt', currentPromptInput.trim());
@@ -113,7 +113,7 @@ function parseMarkdown(text) {
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
         return `<div class="code-container"><div class="code-header"><span>${lang || 'code'}</span><button class="copy-btn" onclick="window.copyCodeToClipboard(this)">Copy</button></div><pre class="code-content"><code>${code}</code></pre></div>`;
     });
-    html = html.replace(/\*\=(.*?)\*\//g, '<strong>$1</strong>');
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\n/g, '<br>');
     return html;
 }
@@ -258,7 +258,6 @@ function saveToHistory(msg) {
     saveChats();
 }
 
-// Wipes auth warnings instantly once listener state changes are registered
 function removeAuthWarningsFromChat() {
     const activeAuthIndicators = document.querySelectorAll('.ai-message');
     activeAuthIndicators.forEach(msg => {
@@ -395,7 +394,7 @@ function getGuestUsage() {
         let data = JSON.parse(stored);
         if (data.date === today) return data;
     }
-    return { date: today, messages: 0, images: 0 };
+    return { date: today, messages: 0, date: today };
 }
 
 function saveGuestUsage(messages, images) {
@@ -742,7 +741,7 @@ function bindProdNavigation() {
     safeOnclick('do-logout-btn', handleLogout);
     safeOnclick('dropdown-logout-btn', handleLogout);
     safeOnclick('nav-subscription-btn', () => navigate('subscription-screen'));
-    safeOnclick('back-to-profile', () => navigate('subscription-screen'));
+    safeOnclick('back-to-profile', () => navigate('profile-screen'));
     
     safeOnclick('modal-upgrade-btn', () => {
         const modal = document.getElementById('quota-modal');
@@ -853,7 +852,6 @@ function initAppCore() {
         if (error) alert(error.message);
     });
 
-    // Real-Time Session Status Listener to immediately execute commands post-authorization
     supabaseClient.auth.getSession().then(handlePostLoginFlow);
     supabaseClient.auth.onAuthStateChange((event, session) => {
         if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) {
@@ -903,15 +901,12 @@ async function handlePostLoginFlow({ data: { session } }) {
         injectSidebarUI();
         loadChatSessions();
 
-        // AUTOMATIC DETECTION & WORKFLOW RESUMPTION
+        // AUTOMATIC DETECTION & WORKFLOW RESUMPTION LOOP
         const pendingPrompt = localStorage.getItem('xyvro_pending_prompt');
         if (pendingPrompt && pendingPrompt.trim() !== "") {
             localStorage.removeItem('xyvro_pending_prompt');
-            
-            // Clear out the stale authorization prompt warnings
             removeAuthWarningsFromChat();
             
-            // Re-populate the user message input bar and fire off the pipeline instantly
             const inputField = document.getElementById('user-input');
             if (inputField) {
                 inputField.value = pendingPrompt;
@@ -978,7 +973,15 @@ async function handleSend() {
         const payload = { prompt: promptText };
         if (imageSentThisTurn && tier !== 'guest') payload.imageBase64 = imageSentThisTurn;
 
-        const { data, error } = await supabaseClient.functions.invoke('chat', { body: payload });
+        // Extract fresh current JWT authorization token directly from context
+        const sessionToken = currentSession?.access_token || (await supabaseClient.auth.getSession()).data.session?.access_token;
+
+        const { data, error } = await supabaseClient.functions.invoke('chat', { 
+            body: payload,
+            headers: {
+                'Authorization': `Bearer ${sessionToken}`
+            }
+        });
         if (error) throw error;
 
         setTimeout(async () => {
