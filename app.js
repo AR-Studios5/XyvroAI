@@ -3,7 +3,6 @@
 // ==========================================
 const SUPPORT_EMAIL = 'xyvroentertainment@gmail.com';
 
-// --- DYNAMIC UI INJECTION (Styles for Code Blocks, Sidebar, Context Menu & Animations) ---
 const extraStyles = document.createElement('style');
 extraStyles.innerHTML = `
 /* Code Blocks */
@@ -32,7 +31,7 @@ extraStyles.innerHTML = `
 .chat-history-item.active { border-color: var(--primary-blue); background: rgba(37,99,235,0.05); color: var(--primary-blue);}
 #history-toggle-btn { cursor: pointer; background: none; border: none; color: var(--text-main); display:flex; align-items:center; justify-content:center; padding: 8px; margin-right: 12px; }
 
-/* Context Menu (Long Press / Right Click) */
+/* Context Menu */
 .chat-context-menu { position: fixed; background: var(--surface-card); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 2000; display: none; flex-direction: column; padding: 4px; backdrop-filter: blur(16px); min-width: 140px; }
 .context-item { padding: 10px 16px; cursor: pointer; font-size: 14px; border-radius: 4px; transition: 0.2s; color: var(--text-main); font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .context-item:hover { background: var(--border-color); }
@@ -46,7 +45,6 @@ extraStyles.innerHTML = `
 `;
 document.head.appendChild(extraStyles);
 
-// Inject Context Menu HTML safely
 const contextMenuHTML = `
 <div id="chat-context-menu" class="chat-context-menu">
     <div class="context-item" id="context-rename"><i data-lucide="edit-2"></i> Rename</div>
@@ -75,13 +73,12 @@ const LIMITS = {
     subscribed: { messages: 500, images: 50, delay: 0 }
 };
 
-// Bulletproof click binder
 function safeOnclick(id, callback) {
     const el = document.getElementById(id);
     if (el) el.onclick = callback;
 }
 
-// Global click event delegation handler for dynamic authorization buttons
+// Global dynamic delegation click listener for workspace authorization hooks
 document.body.addEventListener('click', function(e) {
     const inlineBtn = e.target.closest('.oauth-inline-btn');
     if (inlineBtn) {
@@ -89,6 +86,11 @@ document.body.addEventListener('click', function(e) {
         const provider = inlineBtn.getAttribute('data-provider');
         
         if (provider && client) {
+            const currentPromptInput = document.getElementById('user-input')?.value || "";
+            if (currentPromptInput.trim() !== "") {
+                localStorage.setItem('xyvro_pending_prompt', currentPromptInput.trim());
+            }
+            
             const options = { redirectTo: window.location.origin };
             if (provider === 'github') options.scopes = 'repo read:user user:email';
             if (provider === 'google') options.scopes = 'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events';
@@ -252,6 +254,15 @@ function saveToHistory(msg) {
     saveChats();
 }
 
+function removeAuthWarningsFromChat() {
+    const activeAuthIndicators = document.querySelectorAll('.ai-message');
+    activeAuthIndicators.forEach(msg => {
+        if (msg.innerHTML.includes('oauth-inline-btn') || msg.innerHTML.includes('Authorize')) {
+            msg.remove();
+        }
+    });
+}
+
 function switchChat(id) {
     currentChatId = id;
     renderSidebar(); 
@@ -358,6 +369,7 @@ safeOnclick('context-delete', () => {
 
 function purgeLocalUserData() {
     localStorage.removeItem('xyvro_guest_session');
+    localStorage.removeItem('xyvro_pending_prompt');
     if (currentSession?.user?.id) {
         localStorage.removeItem(`xyvro_chats_${currentSession.user.id}`);
     }
@@ -387,6 +399,9 @@ function saveGuestUsage(messages, images) {
     localStorage.setItem('xyvro_guest_session', JSON.stringify(data));
 }
 
+// ==========================================
+// 5. ATTACHMENT & UI EVENT HUB
+// ==========================================
 function navigate(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
     const dropdown = document.getElementById('settings-dropdown');
@@ -496,12 +511,11 @@ function appendMessageUI(msg, animate = true, useTypingEffect = false) {
         textDiv.innerHTML = '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>';
     } else if (msg.type === 'ai' && msg.content) {
         if (msg.oauthTrigger) {
-            textDiv.innerHTML = `<p style="margin-bottom:8px;">${parseMarkdown(msg.content)}</p>
+            textDiv.innerHTML = `<p style="margin-bottom:8px;">To complete this action, I need to open a link to your workspace. Click below to continue:</p>
             <button class="oauth-inline-btn" data-provider="${msg.oauthTrigger}">
-                <i data-lucide="link"></i> Authorize AI Integration
+                <i data-lucide="link"></i> Connect ${msg.oauthTrigger.toUpperCase()} Account
             </button>`;
         } else {
-            // Check for client-side hardware action simulation tokens returned by the backend
             if (msg.content.includes("[SYSTEM HARDWARE SIMULATION ENGAGED]") || msg.content.includes("MAPPED ALARM STATE")) {
                 handleClientHardwareExecution(msg.content);
             }
@@ -524,9 +538,7 @@ function appendMessageUI(msg, animate = true, useTypingEffect = false) {
     return msgDiv;
 }
 
-// Client Hardware Register abstraction parser loop
 function handleClientHardwareExecution(responseText) {
-    console.log("Parsing hardware simulation payload instructions...");
     if (responseText.includes("alarm")) {
         const timeMatch = responseText.match(/\b\d{2}:\d{2}\s*(?:AM|PM)?\b/i);
         const logTime = timeMatch ? timeMatch[0] : "Scheduled Window";
@@ -560,9 +572,6 @@ function triggerQuotaModal(title, message, displayMode) {
     if(modal) modal.classList.remove('hidden');
 }
 
-// ==========================================
-// 5. ATTACHMENT & UI EVENT HUB
-// ==========================================
 safeOnclick('chat-attach-btn', () => {
     const upload = document.getElementById('chat-file-upload');
     if (upload) upload.click();
@@ -728,7 +737,7 @@ function bindProdNavigation() {
     safeOnclick('do-logout-btn', handleLogout);
     safeOnclick('dropdown-logout-btn', handleLogout);
     safeOnclick('nav-subscription-btn', () => navigate('subscription-screen'));
-    safeOnclick('back-to-profile', () => navigate('profile-screen'));
+    safeOnclick('back-to-profile', () => navigate('subscription-screen'));
     
     safeOnclick('modal-upgrade-btn', () => {
         const modal = document.getElementById('quota-modal');
@@ -763,7 +772,6 @@ function initAppCore() {
         return;
     }
     
-    // Bind securely to window context space to prevent event delegation button freezes
     supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     window.supabaseClient = supabaseClient;
     
@@ -842,7 +850,9 @@ function initAppCore() {
 
     supabaseClient.auth.getSession().then(handlePostLoginFlow);
     supabaseClient.auth.onAuthStateChange((event, session) => {
-        if (event === 'SIGNED_IN' && session) handlePostLoginFlow({ data: { session } });
+        if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) {
+            handlePostLoginFlow({ data: { session } });
+        }
     });
 }
 
@@ -886,6 +896,18 @@ async function handlePostLoginFlow({ data: { session } }) {
         
         injectSidebarUI();
         loadChatSessions();
+
+        const pendingPrompt = localStorage.getItem('xyvro_pending_prompt');
+        if (pendingPrompt && pendingPrompt.trim() !== "") {
+            localStorage.removeItem('xyvro_pending_prompt');
+            removeAuthWarningsFromChat();
+            
+            const inputField = document.getElementById('user-input');
+            if (inputField) {
+                inputField.value = pendingPrompt;
+                handleSend();
+            }
+        }
     }
 }
 
@@ -946,26 +968,13 @@ async function handleSend() {
         const payload = { prompt: promptText };
         if (imageSentThisTurn && tier !== 'guest') payload.imageBase64 = imageSentThisTurn;
 
-        // Force a fresh refresh retrieve loop on the active session variables from memory storage registers
         const sessionRefreshResponse = await supabaseClient.auth.getSession();
         const activeSessionObj = sessionRefreshResponse.data.session || currentSession;
-        
         const sessionToken = activeSessionObj?.access_token;
-        const oAuthProvToken = activeSessionObj?.provider_token; // Extracts the provider token on-demand!
-
-        // We build a bulletproof direct header map injection profile
-        const customRequestHeaders = {
-            'Authorization': `Bearer ${sessionToken}`
-        };
-        
-        // If the provider_token exists in the session, we force inject it straight into the request headers!
-        if (oAuthProvToken) {
-            customRequestHeaders['X-Provider-Token'] = oAuthProvToken;
-        }
 
         const { data, error } = await supabaseClient.functions.invoke('chat', { 
             body: payload,
-            headers: customRequestHeaders
+            headers: { 'Authorization': `Bearer ${sessionToken}` }
         });
         if (error) throw error;
 
@@ -1002,6 +1011,13 @@ async function handleSend() {
             setTimeout(() => thinkingEl.remove(), 4000);
         }
     }
+}
+
+safeOnclick('send-btn', handleSend);
+
+const userInputField = document.getElementById('user-input');
+if (userInputField) {
+    userInputField.onkeypress = (e) => { if (e.key === 'Enter') handleSend(); };
 }
 
 // ==========================================
