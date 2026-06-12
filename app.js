@@ -89,6 +89,12 @@ document.body.addEventListener('click', function(e) {
         const provider = inlineBtn.getAttribute('data-provider');
         
         if (provider && client) {
+            // Save the current input prompt so we can run it automatically the second the page reloads after authorization!
+            const lastPromptInput = document.getElementById('user-input')?.value || "";
+            if (lastPromptInput.trim() !== "") {
+                localStorage.setItem('xyvro_pending_prompt', lastPromptInput.trim());
+            }
+            
             const options = { redirectTo: window.location.origin };
             if (provider === 'github') options.scopes = 'repo read:user user:email';
             if (provider === 'google') options.scopes = 'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events';
@@ -107,7 +113,7 @@ function parseMarkdown(text) {
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
         return `<div class="code-container"><div class="code-header"><span>${lang || 'code'}</span><button class="copy-btn" onclick="window.copyCodeToClipboard(this)">Copy</button></div><pre class="code-content"><code>${code}</code></pre></div>`;
     });
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*\*(.*?)\*\"/g, '<strong>$1</strong>');
     html = html.replace(/\n/g, '<br>');
     return html;
 }
@@ -358,6 +364,7 @@ safeOnclick('context-delete', () => {
 
 function purgeLocalUserData() {
     localStorage.removeItem('xyvro_guest_session');
+    localStorage.removeItem('xyvro_pending_prompt');
     if (currentSession?.user?.id) {
         localStorage.removeItem(`xyvro_chats_${currentSession.user.id}`);
     }
@@ -501,7 +508,6 @@ function appendMessageUI(msg, animate = true, useTypingEffect = false) {
                 <i data-lucide="link"></i> Authorize AI Integration
             </button>`;
         } else {
-            // Check for client-side hardware action simulation tokens returned by the backend
             if (msg.content.includes("[SYSTEM HARDWARE SIMULATION ENGAGED]") || msg.content.includes("MAPPED ALARM STATE")) {
                 handleClientHardwareExecution(msg.content);
             }
@@ -524,9 +530,7 @@ function appendMessageUI(msg, animate = true, useTypingEffect = false) {
     return msgDiv;
 }
 
-// Client Hardware Register abstraction parser loop
 function handleClientHardwareExecution(responseText) {
-    console.log("Parsing hardware simulation payload instructions...");
     if (responseText.includes("alarm")) {
         const timeMatch = responseText.match(/\b\d{2}:\d{2}\s*(?:AM|PM)?\b/i);
         const logTime = timeMatch ? timeMatch[0] : "Scheduled Window";
@@ -728,7 +732,7 @@ function bindProdNavigation() {
     safeOnclick('do-logout-btn', handleLogout);
     safeOnclick('dropdown-logout-btn', handleLogout);
     safeOnclick('nav-subscription-btn', () => navigate('subscription-screen'));
-    safeOnclick('back-to-profile', () => navigate('profile-screen'));
+    safeOnclick('back-to-profile', () => navigate('subscription-screen'));
     
     safeOnclick('modal-upgrade-btn', () => {
         const modal = document.getElementById('quota-modal');
@@ -763,7 +767,6 @@ function initAppCore() {
         return;
     }
     
-    // Bind securely to window context space to prevent event delegation button freezes
     supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     window.supabaseClient = supabaseClient;
     
@@ -886,6 +889,24 @@ async function handlePostLoginFlow({ data: { session } }) {
         
         injectSidebarUI();
         loadChatSessions();
+
+        // JUST-IN-TIME POST-AUTHORIZATION FIRING EXTRACTION SYSTEM
+        // Checks if there's a stored task prompt waiting from before the popup redirect occurred!
+        const pendingPrompt = localStorage.getItem('xyvro_pending_prompt');
+        if (pendingPrompt && pendingPrompt.trim() !== "") {
+            localStorage.removeItem('xyvro_pending_prompt');
+            
+            // Wipe any placeholder error alerts from the user chat log viewport container
+            const container = document.getElementById('chat-container');
+            if (container) container.innerHTML = '';
+            
+            // Put text back into input bar container context box and call send thread
+            const inputField = document.getElementById('user-input');
+            if (inputField) {
+                inputField.value = pendingPrompt;
+                handleSend();
+            }
+        }
     }
 }
 
