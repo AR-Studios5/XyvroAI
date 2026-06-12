@@ -31,7 +31,7 @@ extraStyles.innerHTML = `
 .chat-history-item.active { border-color: var(--primary-blue); background: rgba(37,99,235,0.05); color: var(--primary-blue);}
 #history-toggle-btn { cursor: pointer; background: none; border: none; color: var(--text-main); display:flex; align-items:center; justify-content:center; padding: 8px; margin-right: 12px; }
 
-/* Context Menu */
+/* Context Menu (Long Press / Right Click) */
 .chat-context-menu { position: fixed; background: var(--surface-card); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 2000; display: none; flex-direction: column; padding: 4px; backdrop-filter: blur(16px); min-width: 140px; }
 .context-item { padding: 10px 16px; cursor: pointer; font-size: 14px; border-radius: 4px; transition: 0.2s; color: var(--text-main); font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .context-item:hover { background: var(--border-color); }
@@ -45,6 +45,7 @@ extraStyles.innerHTML = `
 `;
 document.head.appendChild(extraStyles);
 
+// Inject Context Menu HTML safely
 const contextMenuHTML = `
 <div id="chat-context-menu" class="chat-context-menu">
     <div class="context-item" id="context-rename"><i data-lucide="edit-2"></i> Rename</div>
@@ -73,12 +74,13 @@ const LIMITS = {
     subscribed: { messages: 500, images: 50, delay: 0 }
 };
 
+// Bulletproof click binder
 function safeOnclick(id, callback) {
     const el = document.getElementById(id);
     if (el) el.onclick = callback;
 }
 
-// Global dynamic delegation click listener for workspace authorization hooks
+// Global click event delegation handler for dynamic authorization buttons
 document.body.addEventListener('click', function(e) {
     const inlineBtn = e.target.closest('.oauth-inline-btn');
     if (inlineBtn) {
@@ -399,9 +401,6 @@ function saveGuestUsage(messages, images) {
     localStorage.setItem('xyvro_guest_session', JSON.stringify(data));
 }
 
-// ==========================================
-// 5. ATTACHMENT & UI EVENT HUB
-// ==========================================
 function navigate(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
     const dropdown = document.getElementById('settings-dropdown');
@@ -572,6 +571,9 @@ function triggerQuotaModal(title, message, displayMode) {
     if(modal) modal.classList.remove('hidden');
 }
 
+// ==========================================
+// 5. ATTACHMENT & UI EVENT HUB
+// ==========================================
 safeOnclick('chat-attach-btn', () => {
     const upload = document.getElementById('chat-file-upload');
     if (upload) upload.click();
